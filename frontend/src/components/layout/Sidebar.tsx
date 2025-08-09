@@ -40,8 +40,8 @@ const navigation = [
     icon: Target,
   },
   {
-    name: 'Goals',
-    href: '/goals',
+    name: 'Savings Goals',
+    href: '/savings-goals',
     icon: PiggyBank,
   },
   {
@@ -63,6 +63,12 @@ const quickActions = [
     href: '/budgets/new',
     icon: Target,
     color: 'bg-blue-500 hover:bg-blue-600',
+  },
+  {
+    name: 'New Goal',
+    href: '/savings-goals/new',
+    icon: PiggyBank,
+    color: 'bg-pink-500 hover:bg-pink-600',
   },
   {
     name: 'New Account',

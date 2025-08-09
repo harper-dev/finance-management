@@ -3,6 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useAuthStore } from '@/stores/authStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
+import { LanguageProvider } from '@/contexts/LanguageContext'
+import '@/lib/i18n'
 
 // Auth Components
 import ProtectedRoute from '@/components/auth/ProtectedRoute'
@@ -15,6 +17,13 @@ import Accounts from '@/pages/Accounts'
 import Transactions from '@/pages/Transactions'
 import NewAccount from '@/pages/NewAccount'
 import NewTransaction from '@/pages/NewTransaction'
+import Budgets from '@/pages/Budgets'
+import NewBudget from '@/pages/NewBudget'
+import SavingsGoals from '@/pages/SavingsGoals'
+import NewSavingsGoal from '@/pages/NewSavingsGoal'
+import Analytics from '@/pages/Analytics'
+import Settings from '@/pages/Settings'
+import NewWorkspace from '@/pages/NewWorkspace'
 
 // Public Pages
 import Landing from '@/pages/Landing'
@@ -50,7 +59,8 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Router>
+      <LanguageProvider>
+        <Router>
         <div className="App">
           <Routes>
             {/* Public marketing pages */}
@@ -87,40 +97,44 @@ function App() {
               </ProtectedRoute>
             } />
 
-            {/* Placeholder routes for future implementation */}
+            {/* Budget routes */}
             <Route path="/budgets" element={
               <ProtectedRoute>
-                <div className="p-8">
-                  <h1 className="text-2xl font-bold">Budgets</h1>
-                  <p className="text-muted-foreground">Coming soon...</p>
-                </div>
+                <Budgets />
               </ProtectedRoute>
             } />
             
-            <Route path="/goals" element={
+            <Route path="/budgets/new" element={
               <ProtectedRoute>
-                <div className="p-8">
-                  <h1 className="text-2xl font-bold">Savings Goals</h1>
-                  <p className="text-muted-foreground">Coming soon...</p>
-                </div>
+                <NewBudget />
               </ProtectedRoute>
             } />
+            
+            {/* Savings Goals routes */}
+            <Route path="/savings-goals" element={
+              <ProtectedRoute>
+                <SavingsGoals />
+              </ProtectedRoute>
+            } />
+            
+            <Route path="/savings-goals/new" element={
+              <ProtectedRoute>
+                <NewSavingsGoal />
+              </ProtectedRoute>
+            } />
+            
+            {/* Legacy route redirect */}
+            <Route path="/goals" element={<Navigate to="/savings-goals" replace />} />
             
             <Route path="/analytics" element={
               <ProtectedRoute>
-                <div className="p-8">
-                  <h1 className="text-2xl font-bold">Analytics</h1>
-                  <p className="text-muted-foreground">Coming soon...</p>
-                </div>
+                <Analytics />
               </ProtectedRoute>
             } />
             
             <Route path="/settings" element={
               <ProtectedRoute>
-                <div className="p-8">
-                  <h1 className="text-2xl font-bold">Settings</h1>
-                  <p className="text-muted-foreground">Coming soon...</p>
-                </div>
+                <Settings />
               </ProtectedRoute>
             } />
 
@@ -136,15 +150,13 @@ function App() {
                 <NewTransaction />
               </ProtectedRoute>
             } />
-            
-            <Route path="/budgets/new" element={
+
+            <Route path="/workspaces/new" element={
               <ProtectedRoute>
-                <div className="p-8">
-                  <h1 className="text-2xl font-bold">Create Budget</h1>
-                  <p className="text-muted-foreground">Coming soon...</p>
-                </div>
+                <NewWorkspace />
               </ProtectedRoute>
             } />
+            
 
             {/* App redirect */}
             <Route path="/app" element={<Navigate to="/dashboard" replace />} />
@@ -163,7 +175,8 @@ function App() {
             } />
           </Routes>
         </div>
-      </Router>
+        </Router>
+      </LanguageProvider>
     </QueryClientProvider>
   )
 }

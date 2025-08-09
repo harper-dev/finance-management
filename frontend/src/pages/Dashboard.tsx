@@ -1,4 +1,4 @@
-import { Plus, TrendingUp, TrendingDown, DollarSign, Target } from 'lucide-react'
+import { Plus, TrendingUp, TrendingDown, DollarSign, Target, Wallet, Receipt, PiggyBank, BarChart3 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { formatCurrency, formatPercentage } from '@/lib/utils'
@@ -59,13 +59,71 @@ export default function Dashboard() {
               Welcome back to {currentWorkspace.name}
             </p>
           </div>
-          <Button asChild>
-            <Link to="/transactions/new">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Transaction
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" asChild>
+              <Link to="/analytics">
+                <BarChart3 className="h-4 w-4 mr-2" />
+                Analytics
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link to="/transactions/new">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Transaction
+              </Link>
+            </Button>
+          </div>
         </div>
+
+        {/* Quick Actions */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Quick Actions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+              <Button variant="outline" className="h-auto p-4 flex-col gap-2" asChild>
+                <Link to="/accounts/new">
+                  <Wallet className="h-6 w-6" />
+                  <div className="text-center">
+                    <div className="font-medium">New Account</div>
+                    <div className="text-xs text-muted-foreground">Add bank account</div>
+                  </div>
+                </Link>
+              </Button>
+              
+              <Button variant="outline" className="h-auto p-4 flex-col gap-2" asChild>
+                <Link to="/transactions/new">
+                  <Receipt className="h-6 w-6" />
+                  <div className="text-center">
+                    <div className="font-medium">Add Transaction</div>
+                    <div className="text-xs text-muted-foreground">Record income/expense</div>
+                  </div>
+                </Link>
+              </Button>
+              
+              <Button variant="outline" className="h-auto p-4 flex-col gap-2" asChild>
+                <Link to="/budgets/new">
+                  <Target className="h-6 w-6" />
+                  <div className="text-center">
+                    <div className="font-medium">Create Budget</div>
+                    <div className="text-xs text-muted-foreground">Set spending limit</div>
+                  </div>
+                </Link>
+              </Button>
+              
+              <Button variant="outline" className="h-auto p-4 flex-col gap-2" asChild>
+                <Link to="/savings-goals/new">
+                  <PiggyBank className="h-6 w-6" />
+                  <div className="text-center">
+                    <div className="font-medium">Savings Goal</div>
+                    <div className="text-xs text-muted-foreground">Set a target</div>
+                  </div>
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Key Metrics */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -275,7 +333,7 @@ export default function Dashboard() {
                     </span>
                   </div>
                   <Button variant="outline" size="sm" className="w-full" asChild>
-                    <Link to="/goals">Manage Goals</Link>
+                    <Link to="/savings-goals">Manage Goals</Link>
                   </Button>
                 </div>
               </CardContent>

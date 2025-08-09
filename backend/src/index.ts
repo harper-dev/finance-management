@@ -10,6 +10,7 @@ import workspaceRoutes from './routes/workspaces'
 import accountRoutes from './routes/accounts'
 import transactionRoutes from './routes/transactions'
 import budgetRoutes from './routes/budgets'
+import savingsGoalRoutes from './routes/savings-goals'
 import analyticsRoutes from './routes/analytics'
 
 const app = new Hono<{ Bindings: Env }>()
@@ -32,6 +33,7 @@ app.route('/api/v1/workspaces', workspaceRoutes)
 app.route('/api/v1/accounts', accountRoutes)
 app.route('/api/v1/transactions', transactionRoutes)
 app.route('/api/v1/budgets', budgetRoutes)
+app.route('/api/v1/savings-goals', savingsGoalRoutes)
 app.route('/api/v1/analytics', analyticsRoutes)
 
 // 404 handler

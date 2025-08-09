@@ -246,6 +246,56 @@ class ApiClient {
     await this.client.delete(`/budgets/${id}`)
   }
 
+  // Savings Goals endpoints
+  async getSavingsGoals(
+    workspaceId: string,
+    options?: {
+      page?: number
+      limit?: number
+      is_active?: boolean
+      category?: string
+    }
+  ): Promise<PaginationResponse<SavingsGoal>> {
+    const response: AxiosResponse<ApiResponse<{ savings_goals: SavingsGoal[]; pagination: any }>> = 
+      await this.client.get('/savings-goals', { 
+        params: { workspace_id: workspaceId, ...options } 
+      })
+    return {
+      data: response.data.data!.savings_goals,
+      pagination: response.data.data!.pagination
+    }
+  }
+
+  async getSavingsGoal(id: string): Promise<SavingsGoal> {
+    const response: AxiosResponse<ApiResponse<SavingsGoal>> = 
+      await this.client.get(`/savings-goals/${id}`)
+    return response.data.data!
+  }
+
+  async createSavingsGoal(workspaceId: string, data: CreateSavingsGoalData): Promise<SavingsGoal> {
+    const response: AxiosResponse<ApiResponse<SavingsGoal>> = 
+      await this.client.post('/savings-goals', data, { 
+        params: { workspace_id: workspaceId } 
+      })
+    return response.data.data!
+  }
+
+  async updateSavingsGoal(id: string, data: Partial<CreateSavingsGoalData>): Promise<SavingsGoal> {
+    const response: AxiosResponse<ApiResponse<SavingsGoal>> = 
+      await this.client.put(`/savings-goals/${id}`, data)
+    return response.data.data!
+  }
+
+  async addMoneyToSavingsGoal(id: string, amount: number): Promise<SavingsGoal> {
+    const response: AxiosResponse<ApiResponse<SavingsGoal>> = 
+      await this.client.post(`/savings-goals/${id}/add-money`, { amount })
+    return response.data.data!
+  }
+
+  async deleteSavingsGoal(id: string): Promise<void> {
+    await this.client.delete(`/savings-goals/${id}`)
+  }
+
   // Analytics endpoints
   async getOverviewAnalytics(workspaceId: string): Promise<OverviewAnalytics> {
     const response: AxiosResponse<ApiResponse<OverviewAnalytics>> = 

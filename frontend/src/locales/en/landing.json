@@ -1,0 +1,118 @@
+{
+  "hero": {
+    "title": "Smart Personal Finance Management Platform",
+    "subtitle": "Easily manage your income, expenses, budget planning and financial goals. Support multi-user collaboration to make family and team financial management simple and efficient.",
+    "ctaPrimary": "Start Free Now",
+    "ctaSecondary": "View Demo",
+    "benefits": {
+      "free": "Completely Free",
+      "noCard": "No Credit Card Required",
+      "instant": "Start Instantly"
+    }
+  },
+  "features": {
+    "title": "Powerful Features",
+    "subtitle": "We provide comprehensive financial management tools to help you easily control your personal and family financial situation",
+    "accounts": {
+      "title": "Multi-Account Management",
+      "description": "Support various account types including bank accounts, cash, investments, assets and debts, unified management of all your financial accounts"
+    },
+    "transactions": {
+      "title": "Smart Bookkeeping",
+      "description": "Quickly record income, expenses and transfers, automatic categorization, support batch import and custom tag classification"
+    },
+    "budgets": {
+      "title": "Budget Planning",
+      "description": "Set monthly, quarterly or annual budgets, track spending progress in real-time, smart alerts for budget overruns"
+    },
+    "analytics": {
+      "title": "Financial Analytics",
+      "description": "Rich charts and reports, deep analysis of income and expense structure, spending trends and financial health"
+    },
+    "collaboration": {
+      "title": "Multi-user Collaboration",
+      "description": "Support family members or teams to jointly manage finances, permission control, real-time synchronization updates"
+    },
+    "security": {
+      "title": "Security Guarantee",
+      "description": "Bank-level data encryption, multi-factor authentication, ensuring your financial information is absolutely secure"
+    }
+  },
+  "stats": {
+    "users": "Active Users",
+    "assets": "Assets Under Management",
+    "transactions": "Transaction Records",
+    "uptime": "System Uptime"
+  },
+  "testimonials": {
+    "title": "User Reviews",
+    "subtitle": "Real user experiences",
+    "reviews": [
+      {
+        "text": "Clean and beautiful interface with comprehensive features. Family financial management has become very simple, highly recommended!",
+        "author": "Mr. Zhang",
+        "location": "Shanghai User"
+      },
+      {
+        "text": "The data analysis feature is great, clearly shows monthly spending structure, helped me save a lot of money.",
+        "author": "Ms. Li", 
+        "location": "Beijing User"
+      },
+      {
+        "text": "The team collaboration feature is very practical, my wife and I can manage household expenses together, very convenient.",
+        "author": "Mr. Wang",
+        "location": "Shenzhen User"
+      }
+    ]
+  },
+  "pricing": {
+    "title": "Choose the Right Plan for You",
+    "subtitle": "Flexible pricing to meet different needs",
+    "plans": {
+      "free": {
+        "name": "Free",
+        "price": "$0",
+        "period": "/month",
+        "features": [
+          "Up to 3 accounts",
+          "Basic bookkeeping functions",
+          "Simple report analysis",
+          "Single user"
+        ],
+        "cta": "Get Started"
+      },
+      "pro": {
+        "name": "Professional",
+        "price": "$9",
+        "period": "/month", 
+        "recommended": "Recommended",
+        "features": [
+          "Unlimited accounts",
+          "Advanced analytics reports",
+          "Budget management",
+          "Up to 5 collaborators",
+          "Data export"
+        ],
+        "cta": "Start Trial"
+      },
+      "enterprise": {
+        "name": "Enterprise",
+        "price": "$29",
+        "period": "/month",
+        "features": [
+          "All Professional features",
+          "Unlimited user collaboration",
+          "API access",
+          "Dedicated customer support",
+          "Custom development"
+        ],
+        "cta": "Contact Sales"
+      }
+    }
+  },
+  "cta": {
+    "title": "Ready to Start Your Financial Management Journey?",
+    "subtitle": "Join thousands of users to make financial management simple and efficient",
+    "button": "Register for Free Now"
+  }
+}
