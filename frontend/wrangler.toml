@@ -1,0 +1,31 @@
+# Cloudflare Pages configuration for frontend
+name = "finance-management-frontend"
+compatibility_date = "2024-01-01"
+
+# Build configuration
+[build]
+command = "npm run build"
+cwd = "."
+publish = "dist"
+
+# Environment variables
+[env.development.vars]
+VITE_API_URL = "http://localhost:8787/api/v1"
+VITE_SUPABASE_URL = "http://localhost:54321"
+VITE_NODE_ENV = "development"
+
+[env.production.vars]
+VITE_NODE_ENV = "production"
+# These will be set via Cloudflare Pages dashboard:
+# VITE_API_URL = "https://your-backend.workers.dev/api/v1"
+# VITE_SUPABASE_URL = "https://your-project.supabase.co"
+# VITE_SUPABASE_ANON_KEY = "your-production-anon-key"
+
+# Custom headers for security
+[[headers]]
+for = "/*"
+[headers.values]
+X-Frame-Options = "DENY"
+X-Content-Type-Options = "nosniff"
+Referrer-Policy = "strict-origin-when-cross-origin"
+Permissions-Policy = "camera=(), microphone=(), geolocation=()"

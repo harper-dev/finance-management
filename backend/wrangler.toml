@@ -1,0 +1,21 @@
+name = "finance-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-15"
+node_compat = true
+
+[env.development]
+name = "finance-api-dev"
+
+[env.production]
+name = "finance-api-prod"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "your-kv-namespace-id"
+preview_id = "your-kv-preview-id"
+
+# Environment variables will be set via wrangler secret put
+# SUPABASE_URL
+# SUPABASE_ANON_KEY
+# SUPABASE_SERVICE_KEY
+# JWT_SECRET
