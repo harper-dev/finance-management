@@ -8,7 +8,8 @@ import {
   Settings,
   Plus,
   CreditCard,
-  PiggyBank
+  PiggyBank,
+  Users
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -48,6 +49,11 @@ const navigation = [
     name: 'Analytics',
     href: '/analytics',
     icon: TrendingUp,
+  },
+  {
+    name: 'Team',
+    href: '/team',
+    icon: Users,
   },
 ]
 

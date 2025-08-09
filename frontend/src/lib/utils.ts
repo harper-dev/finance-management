@@ -5,8 +5,28 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatCurrency(amount: number, currency: string = 'SGD'): string {
-  return new Intl.NumberFormat('en-SG', {
+export function formatCurrency(amount: number, currency: string = 'SGD', compact: boolean = false): string {
+  if (compact && Math.abs(amount) >= 1000) {
+    if (Math.abs(amount) >= 1000000) {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency,
+        notation: 'compact',
+        compactDisplay: 'short',
+        maximumFractionDigits: 1
+      }).format(amount)
+    } else if (Math.abs(amount) >= 1000) {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency,
+        notation: 'compact',
+        compactDisplay: 'short',
+        maximumFractionDigits: 0
+      }).format(amount)
+    }
+  }
+  
+  return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency,
   }).format(amount)

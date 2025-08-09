@@ -8,10 +8,11 @@ import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { useAccounts } from '@/hooks/useApi'
 import Layout from '@/components/layout/Layout'
 import AccountCard from '@/components/features/AccountCard'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { formatCurrency } from '@/lib/utils'
 
 export default function Accounts() {
+  const navigate = useNavigate()
   const { currentWorkspace } = useWorkspaceStore()
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState<string>('all')
@@ -177,8 +178,7 @@ export default function Accounts() {
                     key={account.id} 
                     account={account}
                     onClick={() => {
-                      // Navigate to account details
-                      console.log('Navigate to account:', account.id)
+                      navigate(`/accounts/${account.id}`)
                     }}
                   />
                 ))}

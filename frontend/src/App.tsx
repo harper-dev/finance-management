@@ -24,6 +24,10 @@ import NewSavingsGoal from '@/pages/NewSavingsGoal'
 import Analytics from '@/pages/Analytics'
 import Settings from '@/pages/Settings'
 import NewWorkspace from '@/pages/NewWorkspace'
+import AccountDetail from '@/pages/AccountDetail'
+import ForgotPassword from '@/pages/ForgotPassword'
+import ResetPassword from '@/pages/ResetPassword'
+import TeamManagement from '@/pages/TeamManagement'
 
 // Public Pages
 import Landing from '@/pages/Landing'
@@ -78,6 +82,14 @@ function App() {
               </AuthRedirect>
             } />
             
+            <Route path="/forgot-password" element={
+              <AuthRedirect>
+                <ForgotPassword />
+              </AuthRedirect>
+            } />
+            
+            <Route path="/reset-password" element={<ResetPassword />} />
+            
             {/* Protected routes */}
             <Route path="/dashboard" element={
               <ProtectedRoute>
@@ -88,6 +100,12 @@ function App() {
             <Route path="/accounts" element={
               <ProtectedRoute>
                 <Accounts />
+              </ProtectedRoute>
+            } />
+
+            <Route path="/accounts/:id" element={
+              <ProtectedRoute>
+                <AccountDetail />
               </ProtectedRoute>
             } />
             
@@ -135,6 +153,12 @@ function App() {
             <Route path="/settings" element={
               <ProtectedRoute>
                 <Settings />
+              </ProtectedRoute>
+            } />
+
+            <Route path="/team" element={
+              <ProtectedRoute>
+                <TeamManagement />
               </ProtectedRoute>
             } />
 

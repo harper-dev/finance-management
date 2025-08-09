@@ -4,10 +4,13 @@ import { Button } from '@/components/ui/button'
 import { formatCurrency, formatPercentage } from '@/lib/utils'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { useOverviewAnalytics, useAccounts, useTransactions } from '@/hooks/useApi'
+import { useQuery } from '@tanstack/react-query'
 import Layout from '@/components/layout/Layout'
 import AccountCard from '@/components/features/AccountCard'
 import TransactionItem from '@/components/features/TransactionItem'
 import PieChart from '@/components/charts/PieChart'
+import { FinancialOverview } from '@/components/dashboard/FinancialOverview'
+import { apiClient } from '@/services/api'
 import { Link } from 'react-router-dom'
 
 export default function Dashboard() {
@@ -19,6 +22,26 @@ export default function Dashboard() {
     currentWorkspace?.id, 
     { limit: 5 }
   )
+
+  // Fetch budget data for financial overview
+  const { data: budgetsData } = useQuery({
+    queryKey: ['budgets', currentWorkspace?.id],
+    queryFn: () => {
+      if (!currentWorkspace) return Promise.resolve({ data: [], pagination: { total: 0 } });
+      return apiClient.getBudgets(currentWorkspace.id, { page: 1, limit: 100, is_active: true });
+    },
+    enabled: !!currentWorkspace,
+  })
+
+  // Fetch savings goals data
+  const { data: savingsData } = useQuery({
+    queryKey: ['savings-goals', currentWorkspace?.id],
+    queryFn: () => {
+      if (!currentWorkspace) return Promise.resolve({ data: [], pagination: { total: 0 } });
+      return apiClient.getSavingsGoals(currentWorkspace.id, { page: 1, limit: 100, is_active: true });
+    },
+    enabled: !!currentWorkspace,
+  })
 
   if (!currentWorkspace) {
     return (
@@ -40,6 +63,46 @@ export default function Dashboard() {
   const monthlyExpenses = analytics?.monthly_summary.expenses || 0
   const netIncome = analytics?.monthly_summary.net || 0
   const totalAccounts = analytics?.accounts.total_count || 0
+
+  // Calculate totals
+  const totalBalance = accounts.reduce((sum, account) => sum + account.balance, 0)
+  const budgets = budgetsData?.data || []
+  const savingsGoals = savingsData?.data || []
+  
+  // Budget calculations
+  const totalBudget = budgets.reduce((sum, budget) => sum + budget.amount, 0)
+  const totalBudgetSpent = budgets.reduce((sum, budget) => sum + (budget.spent || 0), 0)
+  const overBudgetCount = budgets.filter(budget => budget.is_over_budget).length
+  
+  // Savings calculations
+  const totalSavingsTarget = savingsGoals.reduce((sum, goal) => sum + goal.target_amount, 0)
+  const currentSavings = savingsGoals.reduce((sum, goal) => sum + goal.current_amount, 0)
+  const completedGoals = savingsGoals.filter(goal => goal.current_amount >= goal.target_amount).length
+
+  // Prepare data for FinancialOverview
+  const financialData = {
+    totalBalance,
+    monthlyIncome,
+    monthlyExpenses,
+    netIncome,
+    budgetAllocated: totalBudget,
+    budgetSpent: totalBudgetSpent,
+    savingsTarget: totalSavingsTarget,
+    currentSavings,
+    trends: analytics?.monthly_trends || [],
+    accounts: {
+      total: accounts.length,
+      active: accounts.filter(acc => acc.is_active).length,
+    },
+    budgets: {
+      total: budgets.length,
+      overBudget: overBudgetCount,
+    },
+    goals: {
+      total: savingsGoals.length,
+      completed: completedGoals,
+    },
+  }
 
   // Prepare data for spending chart
   const spendingData = Object.entries(analytics?.accounts.balances_by_type || {}).map(([type, data]) => ({
@@ -125,58 +188,11 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Key Metrics */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Monthly Income</CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600">
-                {formatCurrency(monthlyIncome, currentWorkspace.currency)}
-              </div>
-              <p className="text-xs text-muted-foreground">This month</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Monthly Expenses</CardTitle>
-              <TrendingDown className="h-4 w-4 text-red-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-600">
-                {formatCurrency(monthlyExpenses, currentWorkspace.currency)}
-              </div>
-              <p className="text-xs text-muted-foreground">This month</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Net Income</CardTitle>
-              <DollarSign className={`h-4 w-4 ${netIncome >= 0 ? 'text-green-600' : 'text-red-600'}`} />
-            </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${netIncome >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {formatCurrency(netIncome, currentWorkspace.currency)}
-              </div>
-              <p className="text-xs text-muted-foreground">This month</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Accounts</CardTitle>
-              <Target className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-blue-600">{totalAccounts}</div>
-              <p className="text-xs text-muted-foreground">Active accounts</p>
-            </CardContent>
-          </Card>
-        </div>
+        {/* Financial Overview */}
+        <FinancialOverview 
+          data={financialData} 
+          currency={currentWorkspace.currency || 'USD'}
+        />
 
         {/* Main Content Grid */}
         <div className="grid gap-6 lg:grid-cols-3">
