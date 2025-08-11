@@ -3,15 +3,13 @@ import { HTTPException } from 'hono/http-exception'
 import { getSupabaseClient } from '../services/supabase'
 import { Env } from '../types/env'
 
-export interface AuthContext {
-  user: {
-    id: string
-    email?: string
-    role?: string
-  }
+export interface AuthUser {
+  id: string
+  email?: string
+  role?: string
 }
 
-export async function authMiddleware(c: Context<{ Bindings: Env }>, next: Next) {
+export async function authMiddleware(c: Context<{ Bindings: Env, Variables: { user: AuthUser } }>, next: Next) {
   const authorization = c.req.header('Authorization')
   
   if (!authorization) {

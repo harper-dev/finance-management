@@ -1,11 +1,12 @@
 import { Hono } from 'hono'
 import { getSupabaseClient } from '../services/supabase'
-import { requireAuth } from '../middleware/auth'
+import { BudgetService } from '../services'
+import { requireAuth, AuthUser } from '../middleware/auth'
 import { successResponse, errorResponse, notFoundResponse } from '../utils/response'
 import { validateRequest, budgetCreateSchema, budgetUpdateSchema, uuidSchema, paginationSchema } from '../utils/validation'
 import { Env } from '../types/env'
 
-const budgets = new Hono<{ Bindings: Env }>()
+const budgets = new Hono<{ Bindings: Env, Variables: { user: AuthUser } }>()
 
 // Get all budgets for a workspace
 budgets.get('/', requireAuth(), async (c) => {
@@ -27,70 +28,23 @@ budgets.get('/', requireAuth(), async (c) => {
     validateRequest(uuidSchema, workspaceId)
     
     const supabase = getSupabaseClient(c.env)
+    const budgetService = new BudgetService(supabase)
     
-    let query = supabase
-      .from('budgets')
-      .select('*', { count: 'exact' })
-      .eq('workspace_id', workspaceId)
-      .order('created_at', { ascending: false })
-    
-    // Apply filters
-    if (isActive !== undefined) {
-      query = query.eq('is_active', isActive === 'true')
+    const filters = {
+      is_active: isActive !== undefined ? isActive === 'true' : undefined,
+      period
     }
     
-    if (period) {
-      query = query.eq('period', period)
-    }
+    const result = await budgetService.getBudgets(workspaceId, user.id, filters, pagination)
     
-    // Apply pagination
-    query = query.range(
-      (pagination.page - 1) * pagination.limit,
-      pagination.page * pagination.limit - 1
-    )
-    
-    const { data, error, count } = await query
-    
-    if (error) {
-      throw new Error(error.message)
-    }
-    
-    // Get spending for each budget
-    const budgetsWithSpending = await Promise.all(
-      (data || []).map(async (budget) => {
-        const { data: spending, error: spendingError } = await supabase
-          .from('transactions')
-          .select('amount')
-          .eq('workspace_id', workspaceId)
-          .eq('category', budget.category)
-          .eq('type', 'expense')
-          .gte('transaction_date', budget.start_date)
-          .lte('transaction_date', budget.end_date || new Date().toISOString().split('T')[0])
-        
-        const totalSpent = spending?.reduce((sum, t) => sum + t.amount, 0) || 0
-        const remaining = budget.amount - totalSpent
-        const percentageUsed = budget.amount > 0 ? (totalSpent / budget.amount) * 100 : 0
-        
-        return {
-          ...budget,
-          spent: totalSpent,
-          remaining: Math.max(0, remaining),
-          percentage_used: Math.min(100, percentageUsed),
-          is_over_budget: totalSpent > budget.amount
-        }
-      })
-    )
-    
-    return successResponse(c, {
-      budgets: budgetsWithSpending,
-      pagination: {
-        page: pagination.page,
-        limit: pagination.limit,
-        total: count || 0,
-        totalPages: Math.ceil((count || 0) / pagination.limit)
-      }
-    })
+    return successResponse(c, result)
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
+    if (error instanceof Error && error.message.includes('Validation failed')) {
+      return errorResponse(c, error.message, 422)
+    }
     return errorResponse(c, `Failed to fetch budgets: ${error}`, 500)
   }
 })
@@ -100,47 +54,20 @@ budgets.get('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     const budgetId = validateRequest(uuidSchema, c.req.param('id'))
+    
     const supabase = getSupabaseClient(c.env)
+    const budgetService = new BudgetService(supabase)
     
-    const { data: budget, error } = await supabase
-      .from('budgets')
-      .select('*')
-      .eq('id', budgetId)
-      .single()
+    const budget = await budgetService.getBudgetById(budgetId, user.id)
     
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return notFoundResponse(c, 'Budget')
-      }
-      throw new Error(error.message)
-    }
-    
-    // Get spending for this budget
-    const { data: spending, error: spendingError } = await supabase
-      .from('transactions')
-      .select('amount, description, transaction_date')
-      .eq('workspace_id', budget.workspace_id)
-      .eq('category', budget.category)
-      .eq('type', 'expense')
-      .gte('transaction_date', budget.start_date)
-      .lte('transaction_date', budget.end_date || new Date().toISOString().split('T')[0])
-      .order('transaction_date', { ascending: false })
-    
-    const totalSpent = spending?.reduce((sum, t) => sum + t.amount, 0) || 0
-    const remaining = budget.amount - totalSpent
-    const percentageUsed = budget.amount > 0 ? (totalSpent / budget.amount) * 100 : 0
-    
-    const budgetWithDetails = {
-      ...budget,
-      spent: totalSpent,
-      remaining: Math.max(0, remaining),
-      percentage_used: Math.min(100, percentageUsed),
-      is_over_budget: totalSpent > budget.amount,
-      transactions: spending || []
-    }
-    
-    return successResponse(c, budgetWithDetails)
+    return successResponse(c, budget)
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
+    if (error instanceof Error && error.message.includes('not found')) {
+      return errorResponse(c, error.message, 404)
+    }
     return errorResponse(c, `Failed to fetch budget: ${error}`, 500)
   }
 })
@@ -160,23 +87,20 @@ budgets.post('/', requireAuth(), async (c) => {
     validateRequest(uuidSchema, workspaceId)
     
     const supabase = getSupabaseClient(c.env)
+    const budgetService = new BudgetService(supabase)
     
-    const { data, error } = await supabase
-      .from('budgets')
-      .insert([{
-        ...validatedData,
-        workspace_id: workspaceId,
-        created_by: user.id
-      }])
-      .select()
-      .single()
-    
-    if (error) {
-      throw new Error(error.message)
+    const budgetData = {
+      ...validatedData,
+      workspace_id: workspaceId
     }
     
-    return successResponse(c, data, 'Budget created successfully')
+    const budget = await budgetService.createBudget(budgetData, user.id)
+    
+    return successResponse(c, budget, 'Budget created successfully')
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
     if (error instanceof Error && error.message.includes('Validation failed')) {
       return errorResponse(c, error.message, 422)
     }
@@ -193,23 +117,18 @@ budgets.put('/:id', requireAuth(), async (c) => {
     const validatedData = validateRequest(budgetUpdateSchema, body)
     
     const supabase = getSupabaseClient(c.env)
+    const budgetService = new BudgetService(supabase)
     
-    const { data, error } = await supabase
-      .from('budgets')
-      .update(validatedData)
-      .eq('id', budgetId)
-      .select()
-      .single()
+    const budget = await budgetService.updateBudget(budgetId, validatedData, user.id)
     
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return notFoundResponse(c, 'Budget')
-      }
-      throw new Error(error.message)
-    }
-    
-    return successResponse(c, data, 'Budget updated successfully')
+    return successResponse(c, budget, 'Budget updated successfully')
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
+    if (error instanceof Error && error.message.includes('not found')) {
+      return errorResponse(c, error.message, 404)
+    }
     if (error instanceof Error && error.message.includes('Validation failed')) {
       return errorResponse(c, error.message, 422)
     }
@@ -222,19 +141,20 @@ budgets.delete('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     const budgetId = validateRequest(uuidSchema, c.req.param('id'))
+    
     const supabase = getSupabaseClient(c.env)
+    const budgetService = new BudgetService(supabase)
     
-    const { error } = await supabase
-      .from('budgets')
-      .delete()
-      .eq('id', budgetId)
-    
-    if (error) {
-      throw new Error(error.message)
-    }
+    await budgetService.deleteBudget(budgetId, user.id)
     
     return successResponse(c, null, 'Budget deleted successfully')
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
+    if (error instanceof Error && error.message.includes('not found')) {
+      return errorResponse(c, error.message, 404)
+    }
     return errorResponse(c, `Failed to delete budget: ${error}`, 500)
   }
 })

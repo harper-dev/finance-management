@@ -1,31 +1,23 @@
 import { Hono } from 'hono'
 import { getSupabaseClient } from '../services/supabase'
-import { requireAuth } from '../middleware/auth'
-import { successResponse, errorResponse, notFoundResponse } from '../utils/response'
+import { WorkspaceService } from '../services'
+import { requireAuth, AuthUser } from '../middleware/auth'
+import { successResponse, errorResponse } from '../utils/response'
 import { validateRequest, workspaceCreateSchema, workspaceUpdateSchema, uuidSchema } from '../utils/validation'
 import { Env } from '../types/env'
 
-const workspaces = new Hono<{ Bindings: Env }>()
+const workspaces = new Hono<{ Bindings: Env, Variables: { user: AuthUser } }>()
 
 // Get all user workspaces
 workspaces.get('/', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     const supabase = getSupabaseClient(c.env)
+    const workspaceService = new WorkspaceService(supabase)
     
-    const { data, error } = await supabase
-      .from('workspaces')
-      .select(`
-        *,
-        workspace_members!inner(role)
-      `)
-      .eq('workspace_members.user_id', user.id)
+    const userWorkspaces = await workspaceService.getUserWorkspaces(user.id)
     
-    if (error) {
-      throw new Error(error.message)
-    }
-    
-    return successResponse(c, data)
+    return successResponse(c, userWorkspaces)
   } catch (error) {
     return errorResponse(c, `Failed to fetch workspaces: ${error}`, 500)
   }
@@ -36,33 +28,21 @@ workspaces.get('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     const workspaceId = validateRequest(uuidSchema, c.req.param('id'))
+    
     const supabase = getSupabaseClient(c.env)
+    const workspaceService = new WorkspaceService(supabase)
     
-    const { data, error } = await supabase
-      .from('workspaces')
-      .select(`
-        *,
-        workspace_members(
-          id,
-          user_id,
-          role,
-          permissions,
-          joined_at,
-          user_profiles(display_name)
-        )
-      `)
-      .eq('id', workspaceId)
-      .single()
+    const workspace = await workspaceService.getWorkspaceById(workspaceId, user.id)
     
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return notFoundResponse(c, 'Workspace')
-      }
-      throw new Error(error.message)
+    if (!workspace) {
+      return errorResponse(c, 'Workspace not found', 404)
     }
     
-    return successResponse(c, data)
+    return successResponse(c, workspace)
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
     return errorResponse(c, `Failed to fetch workspace: ${error}`, 500)
   }
 })
@@ -75,30 +55,9 @@ workspaces.post('/', requireAuth(), async (c) => {
     const validatedData = validateRequest(workspaceCreateSchema, body)
     
     const supabase = getSupabaseClient(c.env)
+    const workspaceService = new WorkspaceService(supabase)
     
-    // Create workspace
-    const { data: workspace, error: workspaceError } = await supabase
-      .from('workspaces')
-      .insert([{ ...validatedData, owner_id: user.id }])
-      .select()
-      .single()
-    
-    if (workspaceError) {
-      throw new Error(workspaceError.message)
-    }
-    
-    // Add creator as owner member
-    const { error: memberError } = await supabase
-      .from('workspace_members')
-      .insert([{
-        workspace_id: workspace.id,
-        user_id: user.id,
-        role: 'owner'
-      }])
-    
-    if (memberError) {
-      throw new Error(memberError.message)
-    }
+    const workspace = await workspaceService.createWorkspace(validatedData, user.id)
     
     return successResponse(c, workspace, 'Workspace created successfully')
   } catch (error) {
@@ -118,23 +77,15 @@ workspaces.put('/:id', requireAuth(), async (c) => {
     const validatedData = validateRequest(workspaceUpdateSchema, body)
     
     const supabase = getSupabaseClient(c.env)
+    const workspaceService = new WorkspaceService(supabase)
     
-    const { data, error } = await supabase
-      .from('workspaces')
-      .update(validatedData)
-      .eq('id', workspaceId)
-      .select()
-      .single()
+    const workspace = await workspaceService.updateWorkspace(workspaceId, validatedData, user.id)
     
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return notFoundResponse(c, 'Workspace')
-      }
-      throw new Error(error.message)
-    }
-    
-    return successResponse(c, data, 'Workspace updated successfully')
+    return successResponse(c, workspace, 'Workspace updated successfully')
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
     if (error instanceof Error && error.message.includes('Validation failed')) {
       return errorResponse(c, error.message, 422)
     }
@@ -147,19 +98,17 @@ workspaces.delete('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     const workspaceId = validateRequest(uuidSchema, c.req.param('id'))
+    
     const supabase = getSupabaseClient(c.env)
+    const workspaceService = new WorkspaceService(supabase)
     
-    const { error } = await supabase
-      .from('workspaces')
-      .delete()
-      .eq('id', workspaceId)
-    
-    if (error) {
-      throw new Error(error.message)
-    }
+    await workspaceService.deleteWorkspace(workspaceId, user.id)
     
     return successResponse(c, null, 'Workspace deleted successfully')
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
     return errorResponse(c, `Failed to delete workspace: ${error}`, 500)
   }
 })
@@ -170,41 +119,25 @@ workspaces.post('/:id/invite', requireAuth(), async (c) => {
     const user = c.get('user')
     const workspaceId = validateRequest(uuidSchema, c.req.param('id'))
     const body = await c.req.json()
-    const { email, role = 'member' } = body
+    const { user_id, role = 'member' } = body
     
-    if (!email) {
-      return errorResponse(c, 'Email is required', 400)
+    if (!user_id) {
+      return errorResponse(c, 'user_id is required', 400)
     }
     
     const supabase = getSupabaseClient(c.env)
+    const workspaceService = new WorkspaceService(supabase)
     
-    // Find user by email
-    const { data: authUser, error: authError } = await supabase.auth.admin.getUserByEmail(email)
+    const member = await workspaceService.inviteUser(workspaceId, user_id, role, user.id)
     
-    if (authError || !authUser.user) {
-      return errorResponse(c, 'User not found', 404)
-    }
-    
-    // Add to workspace
-    const { data, error } = await supabase
-      .from('workspace_members')
-      .insert([{
-        workspace_id: workspaceId,
-        user_id: authUser.user.id,
-        role: role
-      }])
-      .select()
-      .single()
-    
-    if (error) {
-      if (error.code === '23505') {
-        return errorResponse(c, 'User is already a member', 409)
-      }
-      throw new Error(error.message)
-    }
-    
-    return successResponse(c, data, 'User invited successfully')
+    return successResponse(c, member, 'User invited successfully')
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
+    if (error instanceof Error && error.message.includes('already a member')) {
+      return errorResponse(c, error.message, 409)
+    }
     return errorResponse(c, `Failed to invite user: ${error}`, 500)
   }
 })
@@ -218,26 +151,23 @@ workspaces.put('/:id/members/:userId', requireAuth(), async (c) => {
     const body = await c.req.json()
     const { role } = body
     
-    if (!role || !['owner', 'admin', 'member', 'viewer'].includes(role)) {
+    if (!role || !['admin', 'member', 'viewer'].includes(role)) {
       return errorResponse(c, 'Valid role is required', 400)
     }
     
     const supabase = getSupabaseClient(c.env)
+    const workspaceService = new WorkspaceService(supabase)
     
-    const { data, error } = await supabase
-      .from('workspace_members')
-      .update({ role })
-      .eq('workspace_id', workspaceId)
-      .eq('user_id', userId)
-      .select()
-      .single()
+    const member = await workspaceService.updateMemberRole(workspaceId, userId, role, user.id)
     
-    if (error) {
-      throw new Error(error.message)
-    }
-    
-    return successResponse(c, data, 'Member role updated successfully')
+    return successResponse(c, member, 'Member role updated successfully')
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
+    if (error instanceof Error && error.message.includes('Cannot modify owner')) {
+      return errorResponse(c, error.message, 400)
+    }
     return errorResponse(c, `Failed to update member role: ${error}`, 500)
   }
 })
@@ -250,19 +180,18 @@ workspaces.delete('/:id/members/:userId', requireAuth(), async (c) => {
     const userId = validateRequest(uuidSchema, c.req.param('userId'))
     
     const supabase = getSupabaseClient(c.env)
+    const workspaceService = new WorkspaceService(supabase)
     
-    const { error } = await supabase
-      .from('workspace_members')
-      .delete()
-      .eq('workspace_id', workspaceId)
-      .eq('user_id', userId)
-    
-    if (error) {
-      throw new Error(error.message)
-    }
+    await workspaceService.removeMember(workspaceId, userId, user.id)
     
     return successResponse(c, null, 'Member removed successfully')
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
+    if (error instanceof Error && error.message.includes('Cannot remove owner')) {
+      return errorResponse(c, error.message, 400)
+    }
     return errorResponse(c, `Failed to remove member: ${error}`, 500)
   }
 })

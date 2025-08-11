@@ -1,21 +1,18 @@
 import { Hono } from 'hono'
 import { getSupabaseClient } from '../services/supabase'
-import { requireAuth } from '../middleware/auth'
-import { successResponse, errorResponse, notFoundResponse } from '../utils/response'
+import { AccountService } from '../services'
+import { requireAuth, AuthUser } from '../middleware/auth'
+import { successResponse, errorResponse } from '../utils/response'
 import { validateRequest, accountCreateSchema, accountUpdateSchema, uuidSchema, paginationSchema } from '../utils/validation'
 import { Env } from '../types/env'
 
-const accounts = new Hono<{ Bindings: Env }>()
+const accounts = new Hono<{ Bindings: Env, Variables: { user: AuthUser } }>()
 
 // Get all accounts for a workspace
 accounts.get('/', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     const workspaceId = c.req.query('workspace_id')
-    const pagination = validateRequest(paginationSchema, {
-      page: c.req.query('page'),
-      limit: c.req.query('limit')
-    })
     
     if (!workspaceId) {
       return errorResponse(c, 'workspace_id is required', 400)
@@ -23,31 +20,34 @@ accounts.get('/', requireAuth(), async (c) => {
     
     validateRequest(uuidSchema, workspaceId)
     
-    const supabase = getSupabaseClient(c.env)
+    const query = c.req.query()
+    const filters: any = {}
+    const pagination = query.page ? validateRequest(paginationSchema, { 
+      page: query.page, 
+      limit: query.limit 
+    }) : undefined
     
-    const { data, error, count } = await supabase
-      .from('accounts')
-      .select('*', { count: 'exact' })
-      .eq('workspace_id', workspaceId)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false })
-      .range((pagination.page - 1) * pagination.limit, pagination.page * pagination.limit - 1)
-    
-    if (error) {
-      throw new Error(error.message)
+    if (query.is_active !== undefined) {
+      filters.is_active = query.is_active === 'true'
+    }
+    if (query.type) {
+      filters.type = query.type
     }
     
-    return successResponse(c, {
-      accounts: data,
-      pagination: {
-        page: pagination.page,
-        limit: pagination.limit,
-        total: count || 0,
-        totalPages: Math.ceil((count || 0) / pagination.limit)
-      }
-    })
+    const supabase = getSupabaseClient(c.env)
+    const accountService = new AccountService(supabase)
+    
+    const accounts = await accountService.getAccounts(workspaceId, user.id, filters, pagination)
+    
+    return successResponse(c, accounts)
   } catch (error) {
-    return errorResponse(c, `Failed to fetch accounts: ${error}`, 500)
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
+    if (error instanceof Error && error.message.includes('Validation failed')) {
+      return errorResponse(c, error.message, 422)
+    }
+    return errorResponse(c, `Failed to get accounts: ${error}`, 500)
   }
 })
 
@@ -56,24 +56,21 @@ accounts.get('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     const accountId = validateRequest(uuidSchema, c.req.param('id'))
+    
     const supabase = getSupabaseClient(c.env)
+    const accountService = new AccountService(supabase)
     
-    const { data, error } = await supabase
-      .from('accounts')
-      .select('*')
-      .eq('id', accountId)
-      .single()
+    const account = await accountService.getAccountById(accountId, user.id)
     
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return notFoundResponse(c, 'Account')
-      }
-      throw new Error(error.message)
-    }
-    
-    return successResponse(c, data)
+    return successResponse(c, account)
   } catch (error) {
-    return errorResponse(c, `Failed to fetch account: ${error}`, 500)
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
+    if (error instanceof Error && error.message.includes('not found')) {
+      return errorResponse(c, error.message, 404)
+    }
+    return errorResponse(c, `Failed to get account: ${error}`, 500)
   }
 })
 
@@ -82,33 +79,28 @@ accounts.post('/', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     const body = await c.req.json()
-    const validatedData = validateRequest(accountCreateSchema, body)
-    const workspaceId = c.req.query('workspace_id')
+    const workspaceId = body.workspace_id || c.req.query('workspace_id')
     
     if (!workspaceId) {
       return errorResponse(c, 'workspace_id is required', 400)
     }
     
-    validateRequest(uuidSchema, workspaceId)
-    
-    const supabase = getSupabaseClient(c.env)
-    
-    const { data, error } = await supabase
-      .from('accounts')
-      .insert([{
-        ...validatedData,
-        workspace_id: workspaceId,
-        created_by: user.id
-      }])
-      .select()
-      .single()
-    
-    if (error) {
-      throw new Error(error.message)
+    const validatedData = validateRequest(accountCreateSchema, body)
+    const accountData = {
+      ...validatedData,
+      workspace_id: workspaceId
     }
     
-    return successResponse(c, data, 'Account created successfully')
+    const supabase = getSupabaseClient(c.env)
+    const accountService = new AccountService(supabase)
+    
+    const account = await accountService.createAccount(accountData, user.id)
+    
+    return successResponse(c, account, 'Account created successfully')
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
     if (error instanceof Error && error.message.includes('Validation failed')) {
       return errorResponse(c, error.message, 422)
     }
@@ -125,23 +117,18 @@ accounts.put('/:id', requireAuth(), async (c) => {
     const validatedData = validateRequest(accountUpdateSchema, body)
     
     const supabase = getSupabaseClient(c.env)
+    const accountService = new AccountService(supabase)
     
-    const { data, error } = await supabase
-      .from('accounts')
-      .update(validatedData)
-      .eq('id', accountId)
-      .select()
-      .single()
+    const account = await accountService.updateAccount(accountId, validatedData, user.id)
     
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return notFoundResponse(c, 'Account')
-      }
-      throw new Error(error.message)
-    }
-    
-    return successResponse(c, data, 'Account updated successfully')
+    return successResponse(c, account, 'Account updated successfully')
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
+    if (error instanceof Error && error.message.includes('not found')) {
+      return errorResponse(c, error.message, 404)
+    }
     if (error instanceof Error && error.message.includes('Validation failed')) {
       return errorResponse(c, error.message, 422)
     }
@@ -154,24 +141,20 @@ accounts.delete('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     const accountId = validateRequest(uuidSchema, c.req.param('id'))
+    
     const supabase = getSupabaseClient(c.env)
+    const accountService = new AccountService(supabase)
     
-    const { data, error } = await supabase
-      .from('accounts')
-      .update({ is_active: false })
-      .eq('id', accountId)
-      .select()
-      .single()
+    const account = await accountService.deleteAccount(accountId, user.id)
     
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return notFoundResponse(c, 'Account')
-      }
-      throw new Error(error.message)
-    }
-    
-    return successResponse(c, data, 'Account deleted successfully')
+    return successResponse(c, account, 'Account deleted successfully')
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
+    if (error instanceof Error && error.message.includes('not found')) {
+      return errorResponse(c, error.message, 404)
+    }
     return errorResponse(c, `Failed to delete account: ${error}`, 500)
   }
 })
@@ -184,60 +167,19 @@ accounts.get('/:id/balance-history', requireAuth(), async (c) => {
     const days = parseInt(c.req.query('days') || '30')
     
     const supabase = getSupabaseClient(c.env)
+    const accountService = new AccountService(supabase)
     
-    // Get transactions for balance calculation
-    const { data: transactions, error } = await supabase
-      .from('transactions')
-      .select('amount, type, transaction_date, created_at')
-      .eq('account_id', accountId)
-      .gte('transaction_date', new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
-      .order('transaction_date', { ascending: true })
+    const history = await accountService.getBalanceHistory(accountId, user.id, days)
     
-    if (error) {
-      throw new Error(error.message)
-    }
-    
-    // Get current account balance
-    const { data: account, error: accountError } = await supabase
-      .from('accounts')
-      .select('balance, currency')
-      .eq('id', accountId)
-      .single()
-    
-    if (accountError) {
-      throw new Error(accountError.message)
-    }
-    
-    // Calculate balance history
-    let runningBalance = account.balance
-    const balanceHistory = []
-    
-    // Start from current balance and work backwards
-    for (let i = transactions.length - 1; i >= 0; i--) {
-      const transaction = transactions[i]
-      if (transaction.type === 'income') {
-        runningBalance -= transaction.amount
-      } else if (transaction.type === 'expense') {
-        runningBalance += transaction.amount
-      }
-      
-      balanceHistory.unshift({
-        date: transaction.transaction_date,
-        balance: runningBalance,
-        currency: account.currency
-      })
-    }
-    
-    // Add current balance as the latest point
-    balanceHistory.push({
-      date: new Date().toISOString().split('T')[0],
-      balance: account.balance,
-      currency: account.currency
-    })
-    
-    return successResponse(c, balanceHistory)
+    return successResponse(c, history)
   } catch (error) {
-    return errorResponse(c, `Failed to fetch balance history: ${error}`, 500)
+    if (error instanceof Error && error.message.includes('Access denied')) {
+      return errorResponse(c, error.message, 403)
+    }
+    if (error instanceof Error && error.message.includes('not found')) {
+      return errorResponse(c, error.message, 404)
+    }
+    return errorResponse(c, `Failed to get balance history: ${error}`, 500)
   }
 })
 
