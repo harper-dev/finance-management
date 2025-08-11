@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '../components/ui/button';
-import Layout from '../components/layout/Layout';
+import { Layout } from '../components/layout/Layout';
 import { AccountForm } from '../components/forms/AccountForm';
 
 export default function NewAccount() {

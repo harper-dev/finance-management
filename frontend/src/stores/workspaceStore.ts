@@ -15,6 +15,7 @@ interface WorkspaceState {
   updateWorkspace: (id: string, data: any) => Promise<Workspace>
   deleteWorkspace: (id: string) => Promise<void>
   inviteMember: (workspaceId: string, email: string, role: string) => Promise<void>
+  clearWorkspaces: () => void
 }
 
 export const useWorkspaceStore = create<WorkspaceState>()(
@@ -125,6 +126,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         } catch (error) {
           throw error
         }
+      },
+
+      clearWorkspaces: () => {
+        set({ 
+          workspaces: [], 
+          currentWorkspace: null, 
+          isLoading: false 
+        })
       }
     }),
     {

@@ -23,7 +23,7 @@ export function errorResponse(c: Context, error: string, status: number = 400) {
     error,
   }
   
-  return c.json(response, status)
+  return c.json(response, status as any)
 }
 
 export function notFoundResponse(c: Context, resource: string = 'Resource') {
@@ -37,5 +37,5 @@ export function validationErrorResponse(c: Context, errors: any) {
     data: errors,
   }
   
-  return c.json(response, 422)
+  return c.json(response, 422 as any)
 }

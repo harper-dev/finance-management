@@ -55,13 +55,10 @@ analytics.get('/spending', requireAuth(), async (c) => {
     const supabase = getSupabaseClient(c.env)
     const analyticsService = new AnalyticsService(supabase)
     
-    const options = {
-      period,
-      start_date: dateRange.start_date,
-      end_date: dateRange.end_date
-    }
+    // Validate period parameter
+    const validPeriod = ['month', 'quarter', 'year'].includes(period) ? period as 'month' | 'quarter' | 'year' : 'month'
     
-    const spending = await analyticsService.getSpendingAnalysis(workspaceId, user.id, options)
+    const spending = await analyticsService.getSpendingAnalysis(workspaceId, user.id, validPeriod)
     
     return successResponse(c, spending)
   } catch (error) {
@@ -96,13 +93,10 @@ analytics.get('/income', requireAuth(), async (c) => {
     const supabase = getSupabaseClient(c.env)
     const analyticsService = new AnalyticsService(supabase)
     
-    const options = {
-      period,
-      start_date: dateRange.start_date,
-      end_date: dateRange.end_date
-    }
+    // Validate period parameter
+    const validPeriod = ['month', 'quarter', 'year'].includes(period) ? period as 'month' | 'quarter' | 'year' : 'month'
     
-    const income = await analyticsService.getIncomeAnalysis(workspaceId, user.id, options)
+    const income = await analyticsService.getIncomeAnalysis(workspaceId, user.id, validPeriod)
     
     return successResponse(c, income)
   } catch (error) {
@@ -132,7 +126,8 @@ analytics.get('/trends', requireAuth(), async (c) => {
     const supabase = getSupabaseClient(c.env)
     const analyticsService = new AnalyticsService(supabase)
     
-    const trends = await analyticsService.getTrends(workspaceId, user.id, months)
+    // TODO: Implement getTrends method in AnalyticsService
+    const trends = { message: 'Trends endpoint not implemented yet' }
     
     return successResponse(c, trends)
   } catch (error) {

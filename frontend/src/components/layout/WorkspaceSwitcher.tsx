@@ -4,10 +4,12 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { cn } from '@/lib/utils'
+import { useNavigate } from 'react-router-dom'
 
 export default function WorkspaceSwitcher() {
   const { workspaces, currentWorkspace, setCurrentWorkspace, loadWorkspaces } = useWorkspaceStore()
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false)
+  const navigate = useNavigate()
 
   useEffect(() => {
     loadWorkspaces()
@@ -41,7 +43,11 @@ export default function WorkspaceSwitcher() {
 
   if (!currentWorkspace) {
     return (
-      <Button variant="outline" size="sm">
+      <Button 
+        variant="outline" 
+        size="sm"
+        onClick={() => navigate('/workspaces/new')}
+      >
         <Plus className="h-4 w-4 mr-2" />
         Create Workspace
       </Button>
@@ -112,7 +118,10 @@ export default function WorkspaceSwitcher() {
               <Button
                 variant="ghost"
                 className="w-full justify-start"
-                onClick={() => setShowWorkspaceMenu(false)}
+                onClick={() => {
+                  setShowWorkspaceMenu(false)
+                  navigate('/workspaces/new')
+                }}
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Create new workspace

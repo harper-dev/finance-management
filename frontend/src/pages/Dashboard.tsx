@@ -5,7 +5,7 @@ import { formatCurrency, formatPercentage } from '@/lib/utils'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { useOverviewAnalytics, useAccounts, useTransactions } from '@/hooks/useApi'
 import { useQuery } from '@tanstack/react-query'
-import Layout from '@/components/layout/Layout'
+import { Layout } from '@/components/layout/Layout'
 import AccountCard from '@/components/features/AccountCard'
 import TransactionItem from '@/components/features/TransactionItem'
 import PieChart from '@/components/charts/PieChart'
@@ -59,13 +59,13 @@ export default function Dashboard() {
     )
   }
 
-  const monthlyIncome = analytics?.monthly_summary.income || 0
-  const monthlyExpenses = analytics?.monthly_summary.expenses || 0
-  const netIncome = analytics?.monthly_summary.net || 0
-  const totalAccounts = analytics?.accounts.total_count || 0
+  const monthlyIncome = analytics?.monthly_summary?.income || 0
+  const monthlyExpenses = analytics?.monthly_summary?.expenses || 0
+  const netIncome = analytics?.monthly_summary?.net || 0
+  const totalAccounts = analytics?.accounts?.total_count || 0
 
   // Calculate totals
-  const totalBalance = accounts.reduce((sum, account) => sum + account.balance, 0)
+  const totalBalance = accounts ? accounts.reduce((sum, account) => sum + account.balance, 0) : 0
   const budgets = budgetsData?.data || []
   const savingsGoals = savingsData?.data || []
   
@@ -91,8 +91,8 @@ export default function Dashboard() {
     currentSavings,
     trends: analytics?.monthly_trends || [],
     accounts: {
-      total: accounts.length,
-      active: accounts.filter(acc => acc.is_active).length,
+      total: accounts ? accounts.length : 0,
+      active: accounts ? accounts.filter(acc => acc.is_active).length : 0,
     },
     budgets: {
       total: budgets.length,
@@ -105,9 +105,9 @@ export default function Dashboard() {
   }
 
   // Prepare data for spending chart
-  const spendingData = Object.entries(analytics?.accounts.balances_by_type || {}).map(([type, data]) => ({
+  const spendingData = Object.entries(analytics?.accounts?.balances_by_type || {}).map(([type, data]: [string, any]) => ({
     name: type,
-    value: data.total,
+    value: data?.total || 0,
     percentage: 0 // Will be calculated by the chart component
   }))
 
@@ -212,7 +212,7 @@ export default function Dashboard() {
                       <div key={i} className="h-20 bg-muted rounded-md animate-pulse" />
                     ))}
                   </div>
-                ) : accounts.length ? (
+                ) : accounts && accounts.length ? (
                   <div className="grid gap-4 sm:grid-cols-2">
                     {accounts.slice(0, 4).map((account: any) => (
                       <AccountCard 
@@ -248,9 +248,9 @@ export default function Dashboard() {
                       <div key={i} className="h-16 bg-muted rounded-md animate-pulse" />
                     ))}
                   </div>
-                ) : transactionsData?.data.length ? (
+                ) : transactionsData?.data?.length ? (
                   <div className="space-y-2">
-                    {transactionsData.data.map((transaction) => (
+                    {transactionsData?.data?.map((transaction) => (
                       <TransactionItem 
                         key={transaction.id} 
                         transaction={transaction}
@@ -300,13 +300,13 @@ export default function Dashboard() {
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-muted-foreground">Budget Used</span>
                     <span className="text-sm font-medium">
-                      {formatPercentage(analytics?.monthly_summary.budget_used_percentage || 0)}
+                      {formatPercentage(analytics?.monthly_summary?.budget_used_percentage || 0)}
                     </span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div
                       className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${Math.min(analytics?.monthly_summary.budget_used_percentage || 0, 100)}%` }}
+                      style={{ width: `${Math.min(analytics?.monthly_summary?.budget_used_percentage || 0, 100)}%` }}
                     />
                   </div>
                   <div className="flex justify-between text-sm">
@@ -314,7 +314,7 @@ export default function Dashboard() {
                       Spent: {formatCurrency(monthlyExpenses, currentWorkspace.currency)}
                     </span>
                     <span className="text-muted-foreground">
-                      Budget: {formatCurrency(analytics?.monthly_summary.budget_allocated || 0, currentWorkspace.currency)}
+                      Budget: {formatCurrency(analytics?.monthly_summary?.budget_allocated || 0, currentWorkspace.currency)}
                     </span>
                   </div>
                 </div>
@@ -331,21 +331,21 @@ export default function Dashboard() {
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-muted-foreground">Progress</span>
                     <span className="text-sm font-medium">
-                      {formatPercentage(analytics?.savings.progress_percentage || 0)}
+                      {formatPercentage(analytics?.savings?.progress_percentage || 0)}
                     </span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div
                       className="bg-green-500 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${Math.min(analytics?.savings.progress_percentage || 0, 100)}%` }}
+                      style={{ width: `${Math.min(analytics?.savings?.progress_percentage || 0, 100)}%` }}
                     />
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">
-                      Saved: {formatCurrency(analytics?.savings.total_saved || 0, currentWorkspace.currency)}
+                      Saved: {formatCurrency(analytics?.savings?.total_saved || 0, currentWorkspace.currency)}
                     </span>
                     <span className="text-muted-foreground">
-                      Target: {formatCurrency(analytics?.savings.total_target || 0, currentWorkspace.currency)}
+                      Target: {formatCurrency(analytics?.savings?.total_target || 0, currentWorkspace.currency)}
                     </span>
                   </div>
                   <Button variant="outline" size="sm" className="w-full" asChild>

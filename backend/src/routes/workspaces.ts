@@ -57,7 +57,8 @@ workspaces.post('/', requireAuth(), async (c) => {
     const supabase = getSupabaseClient(c.env)
     const workspaceService = new WorkspaceService(supabase)
     
-    const workspace = await workspaceService.createWorkspace(validatedData, user.id)
+    // The service expects CreateWorkspace interface which requires owner_id, but it adds it internally
+    const workspace = await workspaceService.createWorkspace(validatedData as any, user.id)
     
     return successResponse(c, workspace, 'Workspace created successfully')
   } catch (error) {

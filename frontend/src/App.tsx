@@ -12,6 +12,7 @@ import AuthRedirect from '@/components/auth/AuthRedirect'
 
 // Pages
 import Login from '@/pages/Login'
+import Signup from '@/pages/Signup'
 import Dashboard from '@/pages/Dashboard'
 import Accounts from '@/pages/Accounts'
 import Transactions from '@/pages/Transactions'
@@ -31,6 +32,7 @@ import TeamManagement from '@/pages/TeamManagement'
 
 // Public Pages
 import Landing from '@/pages/Landing'
+import NotFound from '@/pages/NotFound'
 import About from '@/pages/About'
 import Contact from '@/pages/Contact'
 import Help from '@/pages/Help'
@@ -48,18 +50,19 @@ const queryClient = new QueryClient({
 })
 
 function App() {
-  const { initialize, isInitialized } = useAuthStore()
+  const { initialize, isInitialized, user } = useAuthStore()
   const { loadWorkspaces } = useWorkspaceStore()
 
   useEffect(() => {
     initialize()
-  }, [initialize])
+  }, []) // Remove initialize from dependencies to prevent re-initialization
 
   useEffect(() => {
-    if (isInitialized) {
+    if (isInitialized && user) {
+      // Only load workspaces if user is authenticated
       loadWorkspaces()
     }
-  }, [isInitialized, loadWorkspaces])
+  }, [isInitialized, user]) // Remove loadWorkspaces from dependencies
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -79,6 +82,12 @@ function App() {
             <Route path="/login" element={
               <AuthRedirect>
                 <Login />
+              </AuthRedirect>
+            } />
+            
+            <Route path="/signup" element={
+              <AuthRedirect>
+                <Signup />
               </AuthRedirect>
             } />
             
@@ -186,17 +195,7 @@ function App() {
             <Route path="/app" element={<Navigate to="/dashboard" replace />} />
             
             {/* 404 page */}
-            <Route path="*" element={
-              <div className="min-h-screen flex items-center justify-center">
-                <div className="text-center">
-                  <h1 className="text-4xl font-bold text-gray-900 mb-4">404</h1>
-                  <p className="text-gray-600 mb-4">Page not found</p>
-                  <a href="/" className="text-primary hover:underline">
-                    Go back home
-                  </a>
-                </div>
-              </div>
-            } />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </div>
         </Router>

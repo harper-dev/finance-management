@@ -16,10 +16,11 @@ budgets.get('/', requireAuth(), async (c) => {
     const isActive = c.req.query('is_active')
     const period = c.req.query('period')
     
-    const pagination = validateRequest(paginationSchema, {
-      page: c.req.query('page'),
-      limit: c.req.query('limit')
-    })
+    const query = c.req.query()
+    const pagination = query.page ? validateRequest(paginationSchema, {
+      page: query.page,
+      limit: query.limit
+    }) as { page: number; limit: number } : undefined
     
     if (!workspaceId) {
       return errorResponse(c, 'workspace_id is required', 400)
@@ -91,7 +92,10 @@ budgets.post('/', requireAuth(), async (c) => {
     
     const budgetData = {
       ...validatedData,
-      workspace_id: workspaceId
+      workspace_id: workspaceId,
+      created_by: user.id,
+      start_date: new Date(validatedData.start_date),
+      end_date: validatedData.end_date ? new Date(validatedData.end_date) : undefined
     }
     
     const budget = await budgetService.createBudget(budgetData, user.id)
@@ -119,7 +123,14 @@ budgets.put('/:id', requireAuth(), async (c) => {
     const supabase = getSupabaseClient(c.env)
     const budgetService = new BudgetService(supabase)
     
-    const budget = await budgetService.updateBudget(budgetId, validatedData, user.id)
+    // Convert string dates to Date objects if present
+    const updateData = {
+      ...validatedData,
+      start_date: validatedData.start_date ? new Date(validatedData.start_date) : undefined,
+      end_date: validatedData.end_date ? new Date(validatedData.end_date) : undefined
+    }
+    
+    const budget = await budgetService.updateBudget(budgetId, updateData, user.id)
     
     return successResponse(c, budget, 'Budget updated successfully')
   } catch (error) {

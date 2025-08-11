@@ -17,10 +17,11 @@ transactions.get('/', requireAuth(), async (c) => {
     const category = c.req.query('category')
     const type = c.req.query('type')
     
-    const pagination = validateRequest(paginationSchema, {
-      page: c.req.query('page'),
-      limit: c.req.query('limit')
-    })
+    const query = c.req.query()
+    const pagination = query.page ? validateRequest(paginationSchema, {
+      page: query.page,
+      limit: query.limit
+    }) as { page: number; limit: number } : undefined
     
     const dateRange = validateRequest(dateRangeSchema, {
       start_date: c.req.query('start_date'),
@@ -39,9 +40,9 @@ transactions.get('/', requireAuth(), async (c) => {
     const filters = {
       account_id: accountId,
       category,
-      type,
-      start_date: dateRange.start_date,
-      end_date: dateRange.end_date
+      type: type as any, // Cast to TransactionType
+      start_date: dateRange.start_date ? new Date(dateRange.start_date) : undefined,
+      end_date: dateRange.end_date ? new Date(dateRange.end_date) : undefined
     }
     
     const result = await transactionService.getTransactions(workspaceId, user.id, filters, pagination)
@@ -100,7 +101,9 @@ transactions.post('/', requireAuth(), async (c) => {
     
     const transactionData = {
       ...validatedData,
-      workspace_id: workspaceId
+      workspace_id: workspaceId,
+      created_by: user.id,
+      transaction_date: new Date(validatedData.transaction_date)
     }
     
     const transaction = await transactionService.createTransaction(transactionData, user.id)
@@ -128,7 +131,13 @@ transactions.put('/:id', requireAuth(), async (c) => {
     const supabase = getSupabaseClient(c.env)
     const transactionService = new TransactionService(supabase)
     
-    const transaction = await transactionService.updateTransaction(transactionId, validatedData, user.id)
+    // Convert string dates to Date objects if present
+    const updateData = {
+      ...validatedData,
+      transaction_date: validatedData.transaction_date ? new Date(validatedData.transaction_date) : undefined
+    }
+    
+    const transaction = await transactionService.updateTransaction(transactionId, updateData, user.id)
     
     return successResponse(c, transaction, 'Transaction updated successfully')
   } catch (error) {
@@ -193,10 +202,12 @@ transactions.post('/bulk', requireAuth(), async (c) => {
     const supabase = getSupabaseClient(c.env)
     const transactionService = new TransactionService(supabase)
     
-    const result = await transactionService.bulkCreateTransactions(
+    const result = await transactionService.createBulkTransactions(
       validatedTransactions.map(transaction => ({
         ...transaction,
-        workspace_id
+        workspace_id,
+        created_by: user.id,
+        transaction_date: new Date(transaction.transaction_date)
       })),
       user.id
     )

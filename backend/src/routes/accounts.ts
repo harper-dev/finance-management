@@ -25,7 +25,7 @@ accounts.get('/', requireAuth(), async (c) => {
     const pagination = query.page ? validateRequest(paginationSchema, { 
       page: query.page, 
       limit: query.limit 
-    }) : undefined
+    }) as { page: number; limit: number } : undefined
     
     if (query.is_active !== undefined) {
       filters.is_active = query.is_active === 'true'
@@ -88,7 +88,8 @@ accounts.post('/', requireAuth(), async (c) => {
     const validatedData = validateRequest(accountCreateSchema, body)
     const accountData = {
       ...validatedData,
-      workspace_id: workspaceId
+      workspace_id: workspaceId,
+      created_by: user.id
     }
     
     const supabase = getSupabaseClient(c.env)

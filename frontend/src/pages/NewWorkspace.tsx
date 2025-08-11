@@ -16,11 +16,20 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 
 const workspaceFormSchema = z.object({
   name: z.string().min(1, 'Workspace name is required').max(100, 'Name too long'),
+  type: z.enum(['personal', 'family', 'team'], {
+    required_error: 'Workspace type is required',
+  }),
   currency: z.string().min(1, 'Currency is required'),
   description: z.string().optional(),
 });
 
 type WorkspaceFormData = z.infer<typeof workspaceFormSchema>;
+
+const WORKSPACE_TYPES = [
+  { value: 'personal', label: 'Personal', description: 'For individual finances' },
+  { value: 'family', label: 'Family', description: 'For household finances' },
+  { value: 'team', label: 'Team', description: 'For business/team finances' },
+];
 
 const CURRENCIES = [
   { value: 'USD', label: 'US Dollar (USD)', symbol: '$' },
@@ -46,31 +55,54 @@ export default function NewWorkspace() {
   } = useForm<WorkspaceFormData>({
     resolver: zodResolver(workspaceFormSchema),
     defaultValues: {
+      type: 'personal',
       currency: 'USD',
     },
   });
 
   const mutation = useMutation({
     mutationFn: async (data: WorkspaceFormData) => {
+      console.log('Mutation function called with:', data);
+      
       const payload = {
         name: data.name,
+        type: data.type,
         currency: data.currency,
         description: data.description || undefined,
       };
+      console.log('Sending payload to API:', payload);
 
-      // Note: This endpoint might not exist yet in the API
-      return (apiClient as any).createWorkspace(payload);
+      try {
+        const result = await apiClient.createWorkspace(payload);
+        console.log('API response:', result);
+        return result;
+      } catch (error) {
+        console.error('API call failed:', error);
+        throw error;
+      }
     },
     onSuccess: (newWorkspace) => {
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
       setCurrentWorkspace(newWorkspace);
       navigate('/dashboard');
     },
+    onError: (error) => {
+      console.error('Failed to create workspace:', error);
+    },
   });
 
-  const onSubmit = handleSubmit((data) => {
-    mutation.mutate(data);
-  });
+  const onSubmit = handleSubmit(
+    (data) => {
+      console.log('Form submitted with data:', data);
+      console.log('Mutation isPending:', mutation.isPending);
+      console.log('Calling mutation.mutate...');
+      
+      mutation.mutate(data);
+    },
+    (errors) => {
+      console.log('Form validation failed:', errors);
+    }
+  );
 
   const handleCancel = () => {
     navigate('/dashboard');
@@ -119,7 +151,10 @@ export default function NewWorkspace() {
                 </Alert>
               )}
 
-              <form onSubmit={onSubmit} className="space-y-6">
+              <form onSubmit={(e) => {
+                console.log('Form onSubmit event triggered');
+                onSubmit(e);
+              }} className="space-y-6">
                 {/* Workspace Name */}
                 <div className="space-y-2">
                   <Label htmlFor="name">Workspace Name *</Label>
@@ -131,6 +166,35 @@ export default function NewWorkspace() {
                   />
                   <p className="text-sm text-muted-foreground">
                     Choose a name that helps you identify this workspace
+                  </p>
+                </div>
+
+                {/* Workspace Type */}
+                <div className="space-y-2">
+                  <Label htmlFor="type">Workspace Type *</Label>
+                  <Select 
+                    value={watch('type')}
+                    onValueChange={(value) => setValue('type', value as 'personal' | 'family' | 'team')}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select workspace type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {WORKSPACE_TYPES.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          <div className="flex flex-col items-start">
+                            <span className="font-medium">{type.label}</span>
+                            <span className="text-xs text-muted-foreground">{type.description}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.type && (
+                    <p className="text-sm text-red-600">{errors.type.message}</p>
+                  )}
+                  <p className="text-sm text-muted-foreground">
+                    Choose the type that best describes this workspace's purpose
                   </p>
                 </div>
 
@@ -214,9 +278,15 @@ export default function NewWorkspace() {
                   <Button
                     type="submit"
                     className="flex-1"
-                    disabled={isSubmitting}
+                    disabled={mutation.isPending}
+                    onClick={(e) => {
+                      console.log('Create Workspace button clicked');
+                      console.log('Form errors:', errors);
+                      console.log('Current form values:', watch());
+                      // Don't preventDefault, let the form handle the submission
+                    }}
                   >
-                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Create Workspace
                   </Button>
                   
@@ -224,7 +294,7 @@ export default function NewWorkspace() {
                     type="button"
                     variant="outline"
                     onClick={handleCancel}
-                    disabled={isSubmitting}
+                    disabled={mutation.isPending}
                   >
                     Cancel
                   </Button>

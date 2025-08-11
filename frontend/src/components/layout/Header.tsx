@@ -5,16 +5,27 @@ import { Card } from '@/components/ui/card'
 import { useAuthStore } from '@/stores/authStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { formatCurrency } from '@/lib/utils'
+import { useNavigate } from 'react-router-dom'
 import WorkspaceSwitcher from './WorkspaceSwitcher'
 
 export default function Header() {
   const { user, profile, signOut } = useAuthStore()
-  const { currentWorkspace } = useWorkspaceStore()
+  const { currentWorkspace, clearWorkspaces } = useWorkspaceStore()
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const navigate = useNavigate()
 
   const handleSignOut = async () => {
-    await signOut()
-    window.location.href = '/login'
+    console.log('Sign out clicked')
+    try {
+      clearWorkspaces()
+      await signOut()
+      console.log('Sign out completed, redirecting...')
+      navigate('/login', { replace: true })
+    } catch (error) {
+      console.error('Error during sign out:', error)
+      // Force redirect even if sign out fails
+      navigate('/login', { replace: true })
+    }
   }
 
   return (

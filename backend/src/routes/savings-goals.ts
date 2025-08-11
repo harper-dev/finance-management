@@ -17,10 +17,11 @@ savingsGoals.get('/', requireAuth(), async (c) => {
     const isActive = c.req.query('is_active')
     const category = c.req.query('category')
     
-    const pagination = validateRequest(paginationSchema, {
-      page: c.req.query('page'),
-      limit: c.req.query('limit')
-    })
+    const query = c.req.query()
+    const pagination = query.page ? validateRequest(paginationSchema, {
+      page: query.page,
+      limit: query.limit
+    }) as { page: number; limit: number } : undefined
     
     if (!workspaceId) {
       return errorResponse(c, 'workspace_id is required', 400)
@@ -92,7 +93,9 @@ savingsGoals.post('/', requireAuth(), async (c) => {
     
     const goalData = {
       ...validatedData,
-      workspace_id: workspaceId
+      workspace_id: workspaceId,
+      created_by: user.id,
+      target_date: validatedData.target_date ? new Date(validatedData.target_date) : undefined
     }
     
     const goal = await savingsGoalService.createSavingsGoal(goalData, user.id)
@@ -120,7 +123,13 @@ savingsGoals.put('/:id', requireAuth(), async (c) => {
     const supabase = getSupabaseClient(c.env)
     const savingsGoalService = new SavingsGoalService(supabase)
     
-    const goal = await savingsGoalService.updateSavingsGoal(goalId, validatedData, user.id)
+    // Convert string dates to Date objects if present
+    const updateData = {
+      ...validatedData,
+      target_date: validatedData.target_date ? new Date(validatedData.target_date) : undefined
+    }
+    
+    const goal = await savingsGoalService.updateSavingsGoal(goalId, updateData, user.id)
     
     return successResponse(c, goal, 'Savings goal updated successfully')
   } catch (error) {
@@ -150,7 +159,7 @@ savingsGoals.post('/:id/add-money', requireAuth(), async (c) => {
     const supabase = getSupabaseClient(c.env)
     const savingsGoalService = new SavingsGoalService(supabase)
     
-    const goal = await savingsGoalService.addMoney(goalId, amount, user.id)
+    const goal = await savingsGoalService.addMoneyToGoal(goalId, amount, user.id)
     
     return successResponse(c, goal, `Successfully added ${amount} to savings goal`)
   } catch (error) {

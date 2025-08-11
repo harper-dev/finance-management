@@ -58,7 +58,7 @@ export function useWorkspace(id: string) {
 export function useAccounts(workspaceId?: string, page: number = 1, limit: number = 20) {
   return useQuery({
     queryKey: ['accounts', workspaceId, page, limit],
-    queryFn: () => apiClient.getAccounts(page, limit),
+    queryFn: () => apiClient.getAccounts(workspaceId!, page, limit),
     enabled: !!workspaceId
   })
 }

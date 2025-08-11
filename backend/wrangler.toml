@@ -3,6 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2024-01-15"
 node_compat = true
 
+[dev]
+local = true
+port = 3002
+
 [env.development]
 name = "finance-api-dev"
 

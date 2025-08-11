@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios'
-import { supabase } from '@/lib/supabase'
+import { authService } from '@/services/auth'
 import type {
   ApiResponse,
   PaginationResponse,
@@ -24,20 +24,22 @@ class ApiClient {
   private client: AxiosInstance
 
   constructor() {
+    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api/v1'
+    
     this.client = axios.create({
-      baseURL: (import.meta as any).env.VITE_API_URL || 'http://localhost:8787/api/v1',
+      baseURL,
       headers: {
         'Content-Type': 'application/json',
       },
     })
 
     // Add auth token to requests
-    this.client.interceptors.request.use(async (config) => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.access_token) {
-        config.headers.Authorization = `Bearer ${session.access_token}`
+    this.client.interceptors.request.use((config) => {
+      const token = authService.getToken();
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
       }
-      return config
+      return config;
     })
 
     // Handle auth errors
@@ -45,42 +47,16 @@ class ApiClient {
       (response) => response,
       async (error) => {
         if (error.response?.status === 401) {
-          // Token expired, try to refresh
-          const { data: { session }, error: refreshError } = await supabase.auth.refreshSession()
-          if (refreshError || !session) {
-            // Refresh failed, redirect to login
-            await supabase.auth.signOut()
-            window.location.href = '/login'
-            return Promise.reject(error)
-          }
-          // Retry the original request with new token
-          const originalRequest = error.config
-          originalRequest.headers.Authorization = `Bearer ${session.access_token}`
-          return this.client.request(originalRequest)
+          // Token expired or invalid, logout user
+          authService.logout();
+          window.location.href = '/login';
         }
         return Promise.reject(error)
       }
     )
   }
 
-  // Auth endpoints
-  async getMe(): Promise<{ user: any; profile: UserProfile }> {
-    const response: AxiosResponse<ApiResponse<{ user: any; profile: UserProfile }>> = 
-      await this.client.get('/auth/me')
-    return response.data.data!
-  }
-
-  async createProfile(data: Partial<UserProfile>): Promise<{ profile: UserProfile; workspace: Workspace }> {
-    const response: AxiosResponse<ApiResponse<{ profile: UserProfile; workspace: Workspace }>> = 
-      await this.client.post('/auth/profile', data)
-    return response.data.data!
-  }
-
-  async updateProfile(data: Partial<UserProfile>): Promise<UserProfile> {
-    const response: AxiosResponse<ApiResponse<UserProfile>> = 
-      await this.client.put('/auth/profile', data)
-    return response.data.data!
-  }
+  // Note: Auth endpoints are now handled by authService
 
   // Workspaces endpoints
   async getWorkspaces(): Promise<Workspace[]> {
@@ -118,12 +94,12 @@ class ApiClient {
   }
 
   // Accounts endpoints
-  async getAccounts(page: number = 1, limit: number = 20): Promise<Account[]> {
-    const response: AxiosResponse<ApiResponse<{ accounts: Account[]; pagination: any }>> = 
+  async getAccounts(workspaceId: string, page: number = 1, limit: number = 20): Promise<Account[]> {
+    const response: AxiosResponse<ApiResponse<{ data: Account[]; pagination: any }>> = 
       await this.client.get('/accounts', { 
-        params: { page, limit } 
+        params: { workspace_id: workspaceId, page, limit } 
       })
-    return response.data.data!.accounts
+    return response.data.data!.data
   }
 
   async getAccount(id: string): Promise<Account> {
@@ -348,7 +324,7 @@ export const apiClient = new ApiClient()
 
 // Export a simplified api object for form components
 export const api = {
-  getAccounts: () => apiClient.getAccounts(),
+  getAccounts: (workspaceId: string) => apiClient.getAccounts(workspaceId),
   createAccount: (data: CreateAccountData) => apiClient.createAccount(data),
   updateAccount: (id: string, data: Partial<CreateAccountData>) => apiClient.updateAccount(id, data),
   createTransaction: (data: CreateTransactionData) => apiClient.createTransaction(data),

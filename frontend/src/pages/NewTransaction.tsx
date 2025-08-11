@@ -1,7 +1,7 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '../components/ui/button';
-import Layout from '../components/layout/Layout';
+import { Layout } from '../components/layout/Layout';
 import { TransactionForm } from '../components/forms/TransactionForm';
 import { TransactionType } from '../types/api';
 
