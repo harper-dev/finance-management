@@ -123,10 +123,23 @@ export function useTransactions(
     end_date?: string
   }
 ) {
+  console.log('useTransactions called:', { workspaceId, options });
+  
   return useQuery(
     ['transactions', workspaceId, options],
-    () => apiClient.getTransactions(workspaceId!, options),
-    { enabled: !!workspaceId }
+    () => {
+      console.log('Fetching transactions with:', { workspaceId, options });
+      return apiClient.getTransactions(workspaceId!, options);
+    },
+    { 
+      enabled: !!workspaceId,
+      onSuccess: (data) => {
+        console.log('Transactions fetched successfully:', data);
+      },
+      onError: (error) => {
+        console.error('Error fetching transactions:', error);
+      }
+    }
   )
 }
 
@@ -143,7 +156,11 @@ export function useCreateTransaction() {
   return useMutation({
     mutationFn: (data: any) => apiClient.createTransaction(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions', currentWorkspace?.id] })
+      // Invalidate all transaction queries for this workspace (with any options)
+      queryClient.invalidateQueries({ 
+        queryKey: ['transactions', currentWorkspace?.id],
+        exact: false 
+      })
       queryClient.invalidateQueries({ queryKey: ['accounts', currentWorkspace?.id] })
       queryClient.invalidateQueries({ queryKey: ['analytics'] })
     }
@@ -158,7 +175,11 @@ export function useUpdateTransaction() {
     ({ id, data }: { id: string; data: any }) => apiClient.updateTransaction(id, data),
     {
       onSuccess: (_, { id }) => {
-        queryClient.invalidateQueries(['transactions', currentWorkspace?.id])
+        // Invalidate all transaction queries for this workspace (with any options)
+        queryClient.invalidateQueries({ 
+          queryKey: ['transactions', currentWorkspace?.id],
+          exact: false 
+        })
         queryClient.invalidateQueries(['transaction', id])
         queryClient.invalidateQueries(['accounts', currentWorkspace?.id])
         queryClient.invalidateQueries(['analytics'])
@@ -175,7 +196,11 @@ export function useDeleteTransaction() {
     (id: string) => apiClient.deleteTransaction(id),
     {
       onSuccess: () => {
-        queryClient.invalidateQueries(['transactions', currentWorkspace?.id])
+        // Invalidate all transaction queries for this workspace (with any options)
+        queryClient.invalidateQueries({ 
+          queryKey: ['transactions', currentWorkspace?.id],
+          exact: false 
+        })
         queryClient.invalidateQueries(['accounts', currentWorkspace?.id])
         queryClient.invalidateQueries(['analytics'])
       }

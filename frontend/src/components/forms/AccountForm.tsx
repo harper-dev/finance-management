@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from '../ui/alert';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { api } from '../../services/api';
 import { Account, AccountType } from '../../types/api';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
 
 const accountFormSchema = z.object({
   name: z.string().min(1, 'Account name is required').max(100, 'Name too long'),
@@ -50,6 +51,7 @@ const COMMON_CURRENCIES = [
 export function AccountForm({ account, onSuccess, onCancel }: AccountFormProps) {
   const queryClient = useQueryClient();
   const isEditing = Boolean(account);
+  const { currentWorkspace } = useWorkspaceStore();
 
   const {
     register,
@@ -81,7 +83,11 @@ export function AccountForm({ account, onSuccess, onCancel }: AccountFormProps) 
           description: data.description,
         });
       } else {
+        if (!currentWorkspace) {
+          throw new Error('No workspace selected');
+        }
         return api.createAccount({
+          workspace_id: currentWorkspace.id,
           name: data.name,
           type: data.type,
           currency: data.currency,

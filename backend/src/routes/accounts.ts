@@ -85,7 +85,10 @@ accounts.post('/', requireAuth(), async (c) => {
       return errorResponse(c, 'workspace_id is required', 400)
     }
     
-    const validatedData = validateRequest(accountCreateSchema, body)
+    // Create a schema without workspace_id for validation
+    const { workspace_id, ...accountDataWithoutWorkspace } = body
+    
+    const validatedData = validateRequest(accountCreateSchema.omit({ workspace_id: true }), accountDataWithoutWorkspace)
     const accountData = {
       ...validatedData,
       workspace_id: workspaceId,

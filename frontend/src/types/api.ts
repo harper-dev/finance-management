@@ -218,6 +218,7 @@ export interface CreateWorkspaceData {
 }
 
 export interface CreateAccountData {
+  workspace_id: string
   name: string
   type: AccountType
   currency: string
@@ -226,13 +227,15 @@ export interface CreateAccountData {
 }
 
 export interface CreateTransactionData {
+  workspace_id: string
   account_id: string
   to_account_id?: string
   type: TransactionType
   amount: number
+  currency: string
   category?: string
   description: string
-  date: string
+  transaction_date: string
   notes?: string
 }
 

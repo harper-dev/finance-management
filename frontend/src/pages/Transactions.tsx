@@ -33,6 +33,17 @@ export default function Transactions() {
 
   const { data: accountsData } = useAccounts(currentWorkspace?.id, 1, 100)
 
+  // Debug logging
+  console.log('Transactions page render:', {
+    currentWorkspace: currentWorkspace?.id,
+    transactionsData,
+    transactionsCount: transactionsData?.data?.data?.length || 0,
+    pagination: transactionsData?.data?.pagination,
+    filterType,
+    filterAccount,
+    filterCategory
+  });
+
   if (!currentWorkspace) {
     return (
       <Layout>
@@ -46,7 +57,7 @@ export default function Transactions() {
     )
   }
 
-  const transactions = transactionsData?.data || []
+  const transactions = transactionsData?.data?.data || []
   const accounts = (accountsData as any)?.data || []
   
   // Get unique categories
@@ -270,10 +281,10 @@ export default function Transactions() {
             )}
 
             {/* Pagination */}
-            {transactionsData && transactionsData.pagination.totalPages > 1 && (
+            {transactionsData && transactionsData.data?.pagination?.pages > 1 && (
               <div className="flex items-center justify-between mt-6">
                 <p className="text-sm text-muted-foreground">
-                  Showing {((currentPage - 1) * 20) + 1} to {Math.min(currentPage * 20, transactionsData.pagination.total)} of {transactionsData.pagination.total} transactions
+                  Showing {((currentPage - 1) * 20) + 1} to {Math.min(currentPage * 20, transactionsData.data.pagination.total)} of {transactionsData.data.pagination.total} transactions
                 </p>
                 <div className="flex items-center space-x-2">
                   <Button
@@ -287,8 +298,8 @@ export default function Transactions() {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={currentPage >= transactionsData.pagination.totalPages}
-                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, transactionsData.pagination.totalPages))}
+                    disabled={currentPage >= transactionsData.data.pagination.pages}
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, transactionsData.data.pagination.pages))}
                   >
                     Next
                   </Button>

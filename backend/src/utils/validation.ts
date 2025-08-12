@@ -34,6 +34,7 @@ export const workspaceUpdateSchema = workspaceCreateSchema.partial()
 
 // Account schemas
 export const accountCreateSchema = z.object({
+  workspace_id: z.string().uuid(),
   name: z.string().min(1).max(100),
   type: z.enum(['cash', 'bank', 'investment', 'asset', 'debt']),
   currency: z.string().length(3).default('SGD'),

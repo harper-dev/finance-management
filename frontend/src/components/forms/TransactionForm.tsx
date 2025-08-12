@@ -17,6 +17,7 @@ import { Loader2, AlertCircle, CalendarIcon, ArrowUpDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { api } from '../../services/api';
 import { Transaction, TransactionType } from '../../types/api';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
 
 const transactionFormSchema = z.object({
   type: z.enum(['income', 'expense', 'transfer'] as const),
@@ -67,6 +68,7 @@ export function TransactionForm({
 }: TransactionFormProps) {
   const queryClient = useQueryClient();
   const isEditing = Boolean(transaction);
+  const { currentWorkspace } = useWorkspaceStore();
 
   const {
     register,
@@ -99,22 +101,35 @@ export function TransactionForm({
 
   // Fetch accounts for selection
   const { data: accounts = [] } = useQuery({
-    queryKey: ['accounts'],
-    queryFn: api.getAccounts,
+    queryKey: ['accounts', currentWorkspace?.id],
+    queryFn: () => currentWorkspace ? api.getAccounts(currentWorkspace.id) : Promise.resolve([]),
+    enabled: !!currentWorkspace,
   });
 
   const availableToAccounts = accounts.filter((account: any) => account.id !== watchAccountId);
 
   const mutation = useMutation({
     mutationFn: async (data: TransactionFormData) => {
+      if (!currentWorkspace) {
+        throw new Error('No workspace selected');
+      }
+
+      // Get the account to get its currency
+      const selectedAccount = accounts.find(acc => acc.id === data.account_id);
+      if (!selectedAccount) {
+        throw new Error('Selected account not found');
+      }
+
       const payload = {
+        workspace_id: currentWorkspace.id,
         type: data.type,
         amount: data.amount,
+        currency: selectedAccount.currency,
         description: data.description,
         account_id: data.account_id,
         to_account_id: data.to_account_id,
         category: data.category,
-        date: format(data.date, 'yyyy-MM-dd'),
+        transaction_date: data.date.toISOString(),
         notes: data.notes,
       };
 
@@ -125,9 +140,18 @@ export function TransactionForm({
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      queryClient.invalidateQueries({ queryKey: ['analytics'] });
+      console.log('Transaction created/updated successfully, invalidating queries...');
+      console.log('Current workspace ID:', currentWorkspace?.id);
+      
+      // Invalidate all transaction queries for this workspace (with any options)
+      queryClient.invalidateQueries({ 
+        queryKey: ['transactions', currentWorkspace?.id],
+        exact: false 
+      });
+      queryClient.invalidateQueries({ queryKey: ['accounts', currentWorkspace?.id] });
+      queryClient.invalidateQueries({ queryKey: ['analytics', currentWorkspace?.id] });
+      
+      console.log('Queries invalidated, calling onSuccess callback...');
       onSuccess?.();
     },
   });
@@ -277,7 +301,7 @@ export function TransactionForm({
               <Label>Category</Label>
               <Select onValueChange={(value) => setValue('category', value)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select or type category" />
+                  <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
                   {currentCategories.map((category) => (
@@ -287,11 +311,6 @@ export function TransactionForm({
                   ))}
                 </SelectContent>
               </Select>
-              {/* Allow custom category input */}
-              <Input
-                placeholder="Or enter custom category"
-                {...register('category')}
-              />
               {errors.category && (
                 <p className="text-sm text-destructive">{errors.category.message}</p>
               )}
