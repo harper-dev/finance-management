@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAuthStore } from '@/stores/authStore'
 
 export default function Login() {
-  const { signIn, signInWithGoogle, user, isLoading } = useAuthStore()
+  const { signIn, user, isLoading } = useAuthStore()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -29,10 +29,8 @@ export default function Login() {
 
   const handleGoogleSignIn = async () => {
     setError('')
-    const result = await signInWithGoogle()
-    if (result.error) {
-      setError(result.error)
-    }
+    // Google sign in not implemented yet
+    setError('Google sign in is not available yet')
   }
 
   return (

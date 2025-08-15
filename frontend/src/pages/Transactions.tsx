@@ -37,8 +37,8 @@ export default function Transactions() {
   console.log('Transactions page render:', {
     currentWorkspace: currentWorkspace?.id,
     transactionsData,
-    transactionsCount: transactionsData?.data?.data?.length || 0,
-    pagination: transactionsData?.data?.pagination,
+    transactionsCount: transactionsData?.data?.length || 0,
+    pagination: (transactionsData as any)?.pagination,
     filterType,
     filterAccount,
     filterCategory
@@ -57,7 +57,7 @@ export default function Transactions() {
     )
   }
 
-  const transactions = transactionsData?.data?.data || []
+  const transactions = transactionsData?.data || []
   const accounts = (accountsData as any)?.data || []
   
   // Get unique categories
@@ -281,10 +281,10 @@ export default function Transactions() {
             )}
 
             {/* Pagination */}
-            {transactionsData && transactionsData.data?.pagination?.pages > 1 && (
+            {transactionsData && (transactionsData as any).pagination?.pages > 1 && (
               <div className="flex items-center justify-between mt-6">
                 <p className="text-sm text-muted-foreground">
-                  Showing {((currentPage - 1) * 20) + 1} to {Math.min(currentPage * 20, transactionsData.data.pagination.total)} of {transactionsData.data.pagination.total} transactions
+                  Showing {((currentPage - 1) * 20) + 1} to {Math.min(currentPage * 20, (transactionsData as any).pagination.total)} of {(transactionsData as any).pagination.total} transactions
                 </p>
                 <div className="flex items-center space-x-2">
                   <Button
@@ -298,8 +298,8 @@ export default function Transactions() {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={currentPage >= transactionsData.data.pagination.pages}
-                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, transactionsData.data.pagination.pages))}
+                    disabled={currentPage >= (transactionsData as any).pagination.pages}
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, (transactionsData as any).pagination.pages))}
                   >
                     Next
                   </Button>

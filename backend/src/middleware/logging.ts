@@ -8,14 +8,29 @@ export async function loggingMiddleware(c: Context, next: Next) {
   const userAgent = c.req.header('User-Agent');
   const ip = c.req.header('X-Forwarded-For') || c.req.header('X-Real-IP') || 'unknown';
 
-  // Log request start
-  extendedLogger.debug('Request started', {
-    method,
-    url,
-    ip,
-    userAgent,
-    headers: Object.fromEntries(c.req.header())
-  });
+  // Log request start - safely handle headers
+  try {
+    const headers = c.req.header();
+    const safeHeaders = typeof headers === 'object' && headers !== null ? 
+      Object.fromEntries(Object.entries(headers)) : {};
+    
+    extendedLogger.debug('Request started', {
+      method,
+      url,
+      ip,
+      userAgent,
+      headers: safeHeaders
+    });
+  } catch (headerError) {
+    // If header processing fails, log without headers
+    extendedLogger.debug('Request started', {
+      method,
+      url,
+      ip,
+      userAgent,
+      headers: {}
+    });
+  }
 
   try {
     // Continue to next middleware/route

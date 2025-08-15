@@ -1,5 +1,6 @@
-import axios, { AxiosInstance, AxiosResponse } from 'axios'
+import axios, { AxiosInstance, AxiosResponse, AxiosError, AxiosRequestConfig } from 'axios'
 import { authService } from '@/services/auth'
+import { errorReportingService } from '@/services/errorReporting'
 import type {
   ApiResponse,
   PaginationResponse,
@@ -17,43 +18,391 @@ import type {
   CreateAccountData,
   CreateTransactionData,
   CreateBudgetData,
-  CreateSavingsGoalData
+  CreateSavingsGoalData,
+  UserSettings,
+  UpdateUserSettingsData,
+  UpdateWorkspaceSettingsData
 } from '@/types/api'
+
+// Enhanced error types for better error handling
+export interface ApiError {
+  type: string
+  message: string
+  details?: any
+  timestamp: string
+  request_id?: string
+}
+
+export class NetworkError extends Error {
+  constructor(
+    message: string,
+    public status?: number,
+    public statusText?: string,
+    public data?: any,
+    public isRetryable: boolean = true
+  ) {
+    super(message)
+    this.name = 'NetworkError'
+  }
+}
+
+export class ValidationError extends Error {
+  constructor(
+    message: string,
+    public fieldErrors?: Record<string, string[]>
+  ) {
+    super(message)
+    this.name = 'ValidationError'
+  }
+}
+
+export class AuthenticationError extends Error {
+  constructor(message: string = 'Authentication required') {
+    super(message)
+    this.name = 'AuthenticationError'
+  }
+}
+
+export class AuthorizationError extends Error {
+  constructor(message: string = 'Insufficient permissions') {
+    super(message)
+    this.name = 'AuthorizationError'
+  }
+}
+
+export class OfflineError extends Error {
+  constructor(message: string = 'You appear to be offline. Please check your internet connection.') {
+    super(message)
+    this.name = 'OfflineError'
+  }
+}
+
+export class TimeoutError extends Error {
+  constructor(message: string = 'Request timed out. Please try again.') {
+    super(message)
+    this.name = 'TimeoutError'
+  }
+}
+
+// Retry configuration interface
+interface RetryConfig {
+  maxRetries: number
+  baseDelay: number
+  maxDelay: number
+  retryCondition?: (error: Error) => boolean
+}
 
 class ApiClient {
   private client: AxiosInstance
+  private isOnline: boolean = navigator.onLine
+  private retryConfig: RetryConfig = {
+    maxRetries: 3,
+    baseDelay: 1000,
+    maxDelay: 10000,
+    retryCondition: (error: Error) => {
+      // Retry on network errors, timeouts, and 5xx server errors
+      return error instanceof NetworkError || 
+             error instanceof TimeoutError ||
+             error instanceof OfflineError ||
+             (error instanceof NetworkError && error.status && error.status >= 500)
+    }
+  }
 
   constructor() {
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api/v1'
+    const baseURL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3002/api/v1'
     
     this.client = axios.create({
       baseURL,
+      timeout: 30000, // 30 second timeout
       headers: {
         'Content-Type': 'application/json',
       },
     })
 
-    // Add auth token to requests
-    this.client.interceptors.request.use((config) => {
-      const token = authService.getToken();
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-      return config;
-    })
+    this.setupInterceptors()
+    this.setupOfflineDetection()
+  }
 
-    // Handle auth errors
-    this.client.interceptors.response.use(
-      (response) => response,
-      async (error) => {
-        if (error.response?.status === 401) {
-          // Token expired or invalid, logout user
-          authService.logout();
-          window.location.href = '/login';
+  /**
+   * Setup request and response interceptors
+   */
+  private setupInterceptors() {
+    // Request interceptor
+    this.client.interceptors.request.use(
+      (config) => {
+        // Check if offline before making request
+        if (!this.isOnline) {
+          return Promise.reject(new OfflineError())
         }
+
+        // Add auth token to requests
+        const token = authService.getToken()
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`
+        }
+
+        // Add request ID for tracking
+        config.headers['X-Request-ID'] = crypto.randomUUID()
+
+        return config
+      },
+      (error) => {
         return Promise.reject(error)
       }
     )
+
+    // Response interceptor with enhanced error handling
+    this.client.interceptors.response.use(
+      (response) => response,
+      async (error: AxiosError) => {
+        const enhancedError = this.handleApiError(error)
+        
+        // Report network errors to monitoring service
+        if (error.config) {
+          errorReportingService.reportNetworkError(
+            error.config.url || 'unknown',
+            error.config.method?.toUpperCase() || 'unknown',
+            error.response?.status,
+            error.response?.statusText,
+            typeof error.response?.data === 'string' ? error.response.data : JSON.stringify(error.response?.data)
+          )
+        }
+
+        return Promise.reject(enhancedError)
+      }
+    )
+  }
+
+  /**
+   * Setup offline/online detection
+   */
+  private setupOfflineDetection() {
+    window.addEventListener('online', () => {
+      this.isOnline = true
+      console.log('Connection restored')
+    })
+
+    window.addEventListener('offline', () => {
+      this.isOnline = false
+      console.log('Connection lost')
+    })
+  }
+
+  /**
+   * Enhanced error handling for API responses
+   */
+  private handleApiError(error: AxiosError): Error {
+    // Check if offline first
+    if (!this.isOnline) {
+      return new OfflineError()
+    }
+
+    // Network error (no response)
+    if (!error.response) {
+      // Timeout errors
+      if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+        return new TimeoutError('Request timed out. Please check your connection and try again.')
+      }
+      
+      // Network connection errors
+      if (error.code === 'NETWORK_ERROR' || 
+          error.code === 'ERR_NETWORK' ||
+          error.message.includes('Network Error') ||
+          error.message.includes('ERR_INTERNET_DISCONNECTED')) {
+        return new NetworkError('Network connection failed. Please check your internet connection.', undefined, undefined, undefined, true)
+      }
+
+      // Connection refused/unavailable
+      if (error.code === 'ECONNREFUSED' || 
+          error.code === 'ERR_CONNECTION_REFUSED' ||
+          error.message.includes('Connection refused')) {
+        return new NetworkError('Unable to connect to server. Please try again later.', undefined, undefined, undefined, true)
+      }
+
+      // DNS resolution errors
+      if (error.code === 'ENOTFOUND' || error.message.includes('getaddrinfo ENOTFOUND')) {
+        return new NetworkError('Server not found. Please check your connection.', undefined, undefined, undefined, true)
+      }
+
+      // Generic network error
+      return new NetworkError('Network error occurred. Please try again.', undefined, undefined, undefined, true)
+    }
+
+    const { status, data } = error.response
+    const apiError = data as { error?: ApiError }
+
+    // Handle specific HTTP status codes
+    switch (status) {
+      case 400:
+        if (apiError.error?.type === 'VALIDATION_ERROR') {
+          return new ValidationError(
+            apiError.error.message || 'Validation failed',
+            apiError.error.details?.fieldErrors || apiError.error.details?.errors
+          )
+        }
+        return new Error(apiError.error?.message || 'Bad request')
+
+      case 401:
+        // Token expired or invalid, logout user
+        setTimeout(() => {
+          authService.logout()
+          window.location.href = '/login'
+        }, 100)
+        return new AuthenticationError(apiError.error?.message || 'Authentication required. Please log in again.')
+
+      case 403:
+        return new AuthorizationError(apiError.error?.message || 'You do not have permission to perform this action.')
+
+      case 404:
+        return new Error(apiError.error?.message || 'The requested resource was not found.')
+
+      case 409:
+        return new ValidationError(
+          apiError.error?.message || 'Conflict: Resource already exists or has been modified.',
+          apiError.error?.details?.fieldErrors
+        )
+
+      case 422:
+        return new ValidationError(
+          apiError.error?.message || 'Validation failed',
+          apiError.error?.details?.fieldErrors || apiError.error?.details?.errors
+        )
+
+      case 429:
+        return new NetworkError('Too many requests. Please wait a moment and try again.', status, error.response.statusText, undefined, true)
+
+      case 500:
+        return new NetworkError('Internal server error. Please try again later.', status, error.response.statusText, undefined, true)
+
+      case 502:
+        return new NetworkError('Bad gateway. The server is temporarily unavailable.', status, error.response.statusText, undefined, true)
+
+      case 503:
+        return new NetworkError('Service unavailable. Please try again later.', status, error.response.statusText, undefined, true)
+
+      case 504:
+        return new NetworkError('Gateway timeout. The server took too long to respond.', status, error.response.statusText, undefined, true)
+
+      default:
+        const isRetryable = status >= 500 || status === 408 || status === 429
+        return new NetworkError(
+          apiError.error?.message || `Request failed with status ${status}`,
+          status,
+          error.response.statusText,
+          undefined,
+          isRetryable
+        )
+    }
+  }
+
+  /**
+   * Enhanced retry mechanism with exponential backoff
+   */
+  private async retryRequest<T>(
+    requestFn: () => Promise<T>,
+    config: Partial<RetryConfig> = {}
+  ): Promise<T> {
+    const retryConfig = { ...this.retryConfig, ...config }
+    let lastError: Error
+
+    for (let attempt = 1; attempt <= retryConfig.maxRetries; attempt++) {
+      try {
+        return await requestFn()
+      } catch (error) {
+        lastError = error as Error
+        
+        // Don't retry on authentication/authorization errors
+        if (error instanceof AuthenticationError || error instanceof AuthorizationError) {
+          throw error
+        }
+
+        // Don't retry on validation errors (4xx client errors)
+        if (error instanceof ValidationError) {
+          throw error
+        }
+
+        // Check if error is retryable
+        const shouldRetry = retryConfig.retryCondition ? 
+          retryConfig.retryCondition(lastError) : 
+          this.isRetryableError(lastError)
+
+        if (!shouldRetry || attempt >= retryConfig.maxRetries) {
+          throw error
+        }
+
+        // Calculate delay with exponential backoff and jitter
+        const exponentialDelay = retryConfig.baseDelay * Math.pow(2, attempt - 1)
+        const jitter = Math.random() * 0.1 * exponentialDelay // Add up to 10% jitter
+        const delay = Math.min(exponentialDelay + jitter, retryConfig.maxDelay)
+
+        console.log(`Retrying request (attempt ${attempt}/${retryConfig.maxRetries}) after ${Math.round(delay)}ms`)
+        
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+    }
+
+    throw lastError!
+  }
+
+  /**
+   * Determine if an error is retryable
+   */
+  private isRetryableError(error: Error): boolean {
+    if (error instanceof NetworkError) {
+      return error.isRetryable
+    }
+    
+    if (error instanceof TimeoutError || error instanceof OfflineError) {
+      return true
+    }
+
+    return false
+  }
+
+  /**
+   * Make a request with automatic retry logic
+   */
+  private async makeRequest<T>(
+    requestFn: () => Promise<AxiosResponse<T>>,
+    retryConfig?: Partial<RetryConfig>
+  ): Promise<T> {
+    return this.retryRequest(async () => {
+      const response = await requestFn()
+      return response.data
+    }, retryConfig)
+  }
+
+  /**
+   * Check if the client is online
+   */
+  public isClientOnline(): boolean {
+    return this.isOnline
+  }
+
+  /**
+   * Test connection to the API server
+   */
+  public async testConnection(): Promise<boolean> {
+    try {
+      await this.client.get('/health', { timeout: 5000 })
+      return true
+    } catch (error) {
+      return false
+    }
+  }
+
+  /**
+   * Get current retry configuration
+   */
+  public getRetryConfig(): RetryConfig {
+    return { ...this.retryConfig }
+  }
+
+  /**
+   * Update retry configuration
+   */
+  public updateRetryConfig(config: Partial<RetryConfig>): void {
+    this.retryConfig = { ...this.retryConfig, ...config }
   }
 
   // Note: Auth endpoints are now handled by authService
@@ -274,11 +623,11 @@ class ApiClient {
 
   // Analytics endpoints
   async getOverviewAnalytics(workspaceId: string): Promise<OverviewAnalytics> {
-    const response: AxiosResponse<ApiResponse<OverviewAnalytics>> = 
-      await this.client.get('/analytics/overview', { 
+    return this.makeRequest(async () => {
+      return this.client.get<ApiResponse<OverviewAnalytics>>('/analytics/overview', { 
         params: { workspace_id: workspaceId } 
       })
-    return response.data.data!
+    }).then(response => response.data!)
   }
 
   async getSpendingAnalytics(
@@ -289,11 +638,11 @@ class ApiClient {
       end_date?: string
     }
   ): Promise<SpendingAnalytics> {
-    const response: AxiosResponse<ApiResponse<SpendingAnalytics>> = 
-      await this.client.get('/analytics/spending', { 
+    return this.makeRequest(async () => {
+      return this.client.get<ApiResponse<SpendingAnalytics>>('/analytics/spending', { 
         params: { workspace_id: workspaceId, ...options } 
       })
-    return response.data.data!
+    }).then(response => response.data!)
   }
 
   async getIncomeAnalytics(
@@ -304,19 +653,38 @@ class ApiClient {
       end_date?: string
     }
   ): Promise<IncomeAnalytics> {
-    const response: AxiosResponse<ApiResponse<IncomeAnalytics>> = 
-      await this.client.get('/analytics/income', { 
+    return this.makeRequest(async () => {
+      return this.client.get<ApiResponse<IncomeAnalytics>>('/analytics/income', { 
         params: { workspace_id: workspaceId, ...options } 
       })
-    return response.data.data!
+    }).then(response => response.data!)
   }
 
   async getTrendsAnalytics(workspaceId: string, months: number = 12): Promise<TrendsAnalytics> {
-    const response: AxiosResponse<ApiResponse<TrendsAnalytics>> = 
-      await this.client.get('/analytics/trends', { 
+    return this.makeRequest(async () => {
+      return this.client.get<ApiResponse<TrendsAnalytics>>('/analytics/trends', { 
         params: { workspace_id: workspaceId, months } 
       })
-    return response.data.data!
+    }).then(response => response.data!)
+  }
+
+  // Settings endpoints
+  async getUserSettings(): Promise<UserSettings> {
+    return this.makeRequest(async () => {
+      return this.client.get<ApiResponse<UserSettings>>('/settings/user')
+    }).then(response => response.data!)
+  }
+
+  async updateUserSettings(data: UpdateUserSettingsData): Promise<UserSettings> {
+    return this.makeRequest(async () => {
+      return this.client.put<ApiResponse<UserSettings>>('/settings/user', data)
+    }, { maxRetries: 2 }).then(response => response.data!) // Fewer retries for mutations
+  }
+
+  async updateWorkspaceSettings(workspaceId: string, data: UpdateWorkspaceSettingsData): Promise<Workspace> {
+    return this.makeRequest(async () => {
+      return this.client.put<ApiResponse<Workspace>>(`/workspaces/${workspaceId}`, data)
+    }, { maxRetries: 2 }).then(response => response.data!) // Fewer retries for mutations
   }
 }
 
@@ -327,6 +695,7 @@ export const api = {
   getAccounts: (workspaceId: string) => apiClient.getAccounts(workspaceId),
   createAccount: (data: CreateAccountData) => apiClient.createAccount(data),
   updateAccount: (id: string, data: Partial<CreateAccountData>) => apiClient.updateAccount(id, data),
+  getTransactions: (workspaceId: string, options?: any) => apiClient.getTransactions(workspaceId, options),
   createTransaction: (data: CreateTransactionData) => apiClient.createTransaction(data),
   updateTransaction: (id: string, data: Partial<CreateTransactionData>) => apiClient.updateTransaction(id, data),
 }

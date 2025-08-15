@@ -1,8 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,17 +26,21 @@ import {
 } from 'lucide-react';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useAuthStore } from '@/stores/authStore';
-import { apiClient } from '@/services/api';
+import { useSettings } from '@/hooks/useSettings';
 
 const workspaceSettingsSchema = z.object({
   name: z.string().min(1, 'Workspace name is required').max(100, 'Name too long'),
   currency: z.string().min(1, 'Currency is required'),
-  timezone: z.string().optional(),
-  date_format: z.string().optional(),
+  timezone: z.string().min(1, 'Timezone is required'),
+  date_format: z.string().min(1, 'Date format is required'),
 });
 
 const userSettingsSchema = z.object({
   display_name: z.string().min(1, 'Display name is required').max(100, 'Name too long'),
+  preferred_currency: z.string().min(1, 'Currency is required'),
+  timezone: z.string().min(1, 'Timezone is required'),
+  date_format: z.string().min(1, 'Date format is required'),
+  language: z.string().min(1, 'Language is required'),
   email_notifications: z.boolean(),
   push_notifications: z.boolean(),
   weekly_reports: z.boolean(),
@@ -76,11 +79,33 @@ const DATE_FORMATS = [
   { value: 'YYYY-MM-DD', label: 'YYYY-MM-DD (ISO)' },
 ];
 
+const LANGUAGES = [
+  { value: 'en', label: 'English' },
+  { value: 'zh', label: '中文' },
+  { value: 'es', label: 'Español' },
+  { value: 'fr', label: 'Français' },
+  { value: 'de', label: 'Deutsch' },
+];
+
 export default function Settings() {
   const { currentWorkspace } = useWorkspaceStore();
   const { user } = useAuthStore();
-  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('workspace');
+
+  // Use settings hooks
+  const {
+    userSettings,
+    isLoadingUserSettings,
+    userSettingsError,
+    updateUserSettings,
+    isUpdatingUserSettings,
+    userSettingsUpdateError,
+    updateWorkspaceSettings,
+    isUpdatingWorkspaceSettings,
+    workspaceSettingsUpdateError,
+    isUserSettingsUpdateSuccess,
+    isWorkspaceSettingsUpdateSuccess,
+  } = useSettings();
 
   // Workspace Settings Form
   const workspaceForm = useForm<WorkspaceSettingsData>({
@@ -97,7 +122,11 @@ export default function Settings() {
   const userForm = useForm<UserSettingsData>({
     resolver: zodResolver(userSettingsSchema),
     defaultValues: {
-      display_name: user?.name || '',
+      display_name: '',
+      preferred_currency: 'USD',
+      timezone: 'UTC',
+      date_format: 'MM/DD/YYYY',
+      language: 'en',
       email_notifications: true,
       push_notifications: false,
       weekly_reports: true,
@@ -106,33 +135,45 @@ export default function Settings() {
     },
   });
 
-  const workspaceUpdateMutation = useMutation({
-    mutationFn: async (data: WorkspaceSettingsData) => {
-      if (!currentWorkspace) throw new Error('No workspace selected');
-      // Note: API endpoint may not exist yet
-      return (apiClient as any).updateWorkspace(currentWorkspace.id, data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
-    },
-  });
+  // Update form defaults when data loads
+  useEffect(() => {
+    if (currentWorkspace) {
+      workspaceForm.reset({
+        name: currentWorkspace.name,
+        currency: currentWorkspace.currency,
+        timezone: currentWorkspace.timezone || 'UTC',
+        date_format: currentWorkspace.date_format || 'MM/DD/YYYY',
+      });
+    }
+  }, [currentWorkspace, workspaceForm]);
 
-  const userUpdateMutation = useMutation({
-    mutationFn: async (data: UserSettingsData) => {
-      // Note: API endpoint may not exist yet
-      return (apiClient as any).updateUserSettings(data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['user'] });
-    },
-  });
+  useEffect(() => {
+    if (userSettings) {
+      userForm.reset({
+        display_name: userSettings.display_name,
+        preferred_currency: userSettings.preferred_currency,
+        timezone: userSettings.timezone,
+        date_format: userSettings.date_format,
+        language: userSettings.language,
+        email_notifications: userSettings.email_notifications,
+        push_notifications: userSettings.push_notifications,
+        weekly_reports: userSettings.weekly_reports,
+        budget_alerts: userSettings.budget_alerts,
+        goal_reminders: userSettings.goal_reminders,
+      });
+    }
+  }, [userSettings, userForm]);
 
   const onWorkspaceSubmit = workspaceForm.handleSubmit((data) => {
-    workspaceUpdateMutation.mutate(data);
+    if (!currentWorkspace) return;
+    updateWorkspaceSettings({
+      workspaceId: currentWorkspace.id,
+      data,
+    });
   });
 
   const onUserSubmit = userForm.handleSubmit((data) => {
-    userUpdateMutation.mutate(data);
+    updateUserSettings(data);
   });
 
   if (!currentWorkspace || !user) {
@@ -227,16 +268,16 @@ export default function Settings() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {workspaceUpdateMutation.error && (
+                {workspaceSettingsUpdateError && (
                   <Alert variant="destructive">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertDescription>
-                      Failed to update workspace settings. Please try again.
+                      {workspaceSettingsUpdateError.message || 'Failed to update workspace settings. Please try again.'}
                     </AlertDescription>
                   </Alert>
                 )}
 
-                {workspaceUpdateMutation.isSuccess && (
+                {isWorkspaceSettingsUpdateSuccess && (
                   <Alert>
                     <Check className="h-4 w-4" />
                     <AlertDescription>
@@ -323,10 +364,10 @@ export default function Settings() {
                   <div className="flex justify-end">
                     <Button 
                       type="submit" 
-                      disabled={workspaceUpdateMutation.isPending}
+                      disabled={isUpdatingWorkspaceSettings}
                       className="min-w-[120px]"
                     >
-                      {workspaceUpdateMutation.isPending && (
+                      {isUpdatingWorkspaceSettings && (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       )}
                       Save Changes
@@ -350,6 +391,31 @@ export default function Settings() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                {userSettingsUpdateError && (
+                  <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription>
+                      {userSettingsUpdateError.message || 'Failed to update user settings. Please try again.'}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {isUserSettingsUpdateSuccess && (
+                  <Alert>
+                    <Check className="h-4 w-4" />
+                    <AlertDescription>
+                      User settings updated successfully.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {isLoadingUserSettings && (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                    <span className="ml-2">Loading settings...</span>
+                  </div>
+                )}
+
                 <form onSubmit={onUserSubmit} className="space-y-6">
                   <div className="grid md:grid-cols-2 gap-6">
                     <div className="space-y-2">
@@ -367,13 +433,109 @@ export default function Settings() {
                       <Input
                         id="email"
                         type="email"
-                        value={user.email}
+                        value={user?.email || ''}
                         disabled
                         className="bg-gray-50"
                       />
                       <p className="text-xs text-gray-500">
                         Contact support to change your email address
                       </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="user-currency">Preferred Currency</Label>
+                      <Select 
+                        value={userForm.watch('preferred_currency')}
+                        onValueChange={(value) => userForm.setValue('preferred_currency', value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select currency" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CURRENCIES.map((currency) => (
+                            <SelectItem key={currency.value} value={currency.value}>
+                              {currency.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {userForm.formState.errors.preferred_currency && (
+                        <p className="text-sm text-red-600">
+                          {userForm.formState.errors.preferred_currency.message}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="user-language">Language</Label>
+                      <Select 
+                        value={userForm.watch('language')}
+                        onValueChange={(value) => userForm.setValue('language', value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select language" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {LANGUAGES.map((language) => (
+                            <SelectItem key={language.value} value={language.value}>
+                              {language.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {userForm.formState.errors.language && (
+                        <p className="text-sm text-red-600">
+                          {userForm.formState.errors.language.message}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="user-timezone">Timezone</Label>
+                      <Select 
+                        value={userForm.watch('timezone')}
+                        onValueChange={(value) => userForm.setValue('timezone', value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select timezone" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TIMEZONES.map((timezone) => (
+                            <SelectItem key={timezone.value} value={timezone.value}>
+                              {timezone.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {userForm.formState.errors.timezone && (
+                        <p className="text-sm text-red-600">
+                          {userForm.formState.errors.timezone.message}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="user-date-format">Date Format</Label>
+                      <Select 
+                        value={userForm.watch('date_format')}
+                        onValueChange={(value) => userForm.setValue('date_format', value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select date format" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DATE_FORMATS.map((format) => (
+                            <SelectItem key={format.value} value={format.value}>
+                              {format.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {userForm.formState.errors.date_format && (
+                        <p className="text-sm text-red-600">
+                          {userForm.formState.errors.date_format.message}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -396,10 +558,10 @@ export default function Settings() {
                   <div className="flex justify-end">
                     <Button 
                       type="submit" 
-                      disabled={userUpdateMutation.isPending}
+                      disabled={isUpdatingUserSettings || isLoadingUserSettings}
                       className="min-w-[120px]"
                     >
-                      {userUpdateMutation.isPending && (
+                      {isUpdatingUserSettings && (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       )}
                       Save Changes
@@ -423,6 +585,24 @@ export default function Settings() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                {userSettingsUpdateError && (
+                  <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription>
+                      {userSettingsUpdateError.message || 'Failed to update notification preferences. Please try again.'}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {isUserSettingsUpdateSuccess && (
+                  <Alert>
+                    <Check className="h-4 w-4" />
+                    <AlertDescription>
+                      Notification preferences updated successfully.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
                 <form onSubmit={onUserSubmit} className="space-y-6">
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
@@ -501,10 +681,10 @@ export default function Settings() {
                   <div className="flex justify-end">
                     <Button 
                       type="submit" 
-                      disabled={userUpdateMutation.isPending}
+                      disabled={isUpdatingUserSettings || isLoadingUserSettings}
                       className="min-w-[120px]"
                     >
-                      {userUpdateMutation.isPending && (
+                      {isUpdatingUserSettings && (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       )}
                       Save Preferences

@@ -51,10 +51,8 @@ export default function Signup() {
 
   const handleGoogleSignUp = async () => {
     setError('')
-    const result = await signInWithGoogle()
-    if (result.error) {
-      setError(result.error)
-    }
+    // Google sign up not implemented yet
+    setError('Google sign up is not available yet')
   }
 
   if (isSignupComplete) {

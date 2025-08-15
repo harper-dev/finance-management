@@ -1,7 +1,10 @@
 export * from './AuthService'
+export * from './UserSettingsService'
 export * from './WorkspaceService'
 export * from './AccountService'
 export * from './TransactionService'
 export * from './BudgetService'
 export * from './SavingsGoalService'
-export * from './AnalyticsService'
+
+// Export analytics services
+export * from './analytics'

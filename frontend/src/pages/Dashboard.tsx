@@ -89,7 +89,7 @@ export default function Dashboard() {
     budgetSpent: totalBudgetSpent,
     savingsTarget: totalSavingsTarget,
     currentSavings,
-    trends: analytics?.monthly_trends || [],
+    trends: (analytics as any)?.monthly_trends || [],
     accounts: {
       total: accounts ? accounts.length : 0,
       active: accounts ? accounts.filter(acc => acc.is_active).length : 0,

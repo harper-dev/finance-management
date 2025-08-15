@@ -1,43 +1,73 @@
-export type BudgetPeriod = 'monthly' | 'quarterly' | 'yearly'
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index, ManyToOne, JoinColumn } from 'typeorm'
+import { Workspace } from './Workspace'
 
-export interface Budget {
+@Entity('budgets')
+@Index(['workspaceId'])
+@Index(['category'])
+@Index(['createdBy'])
+export class Budget {
+  @PrimaryGeneratedColumn('uuid')
   id: string
-  workspace_id: string
+
+  @Column({ name: 'workspace_id', type: 'uuid' })
+  workspaceId: string
+
+  @Column({ type: 'varchar', length: 100 })
+  name: string
+
+  @Column({ type: 'varchar', length: 50 })
+  category: string
+
+  @Column({ type: 'decimal', precision: 15, scale: 2 })
+  amount: number
+
+  @Column({ type: 'varchar', length: 20 })
+  period: string
+
+  @Column({ name: 'start_date', type: 'date' })
+  startDate: Date
+
+  @Column({ name: 'end_date', type: 'date', nullable: true })
+  endDate?: Date
+
+  @Column({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean
+
+  @Column({ name: 'created_by', type: 'uuid' })
+  createdBy: string
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date
+
+  @ManyToOne(() => Workspace)
+  @JoinColumn({ name: 'workspace_id' })
+  workspace: Workspace
+}
+
+export interface CreateBudgetDto {
+  workspaceId: string
   name: string
   category: string
   amount: number
-  period: BudgetPeriod
-  start_date: Date
-  end_date?: Date
-  is_active: boolean
-  created_by: string
-  created_at: Date
+  period: string
+  startDate: Date
+  endDate?: Date
+  isActive?: boolean
+  createdBy: string
 }
 
-export interface CreateBudget {
-  workspace_id: string
-  name: string
-  category: string
-  amount: number
-  period: BudgetPeriod
-  start_date: Date
-  end_date?: Date
-  created_by: string
-}
-
-export interface UpdateBudget {
+export interface UpdateBudgetDto {
   name?: string
   category?: string
   amount?: number
-  period?: BudgetPeriod
-  start_date?: Date
-  end_date?: Date
-  is_active?: boolean
+  period?: string
+  startDate?: Date
+  endDate?: Date
+  isActive?: boolean
 }
 
-export interface BudgetWithSpending extends Budget {
+export interface BudgetWithSpendingDto extends Budget {
   spent: number
   remaining: number
-  percentage_used: number
-  is_over_budget: boolean
+  utilizationPercentage: number
 }

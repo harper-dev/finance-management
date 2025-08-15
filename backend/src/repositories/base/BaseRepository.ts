@@ -1,54 +1,45 @@
-import { SupabaseClient } from '@supabase/supabase-js'
-import { Database } from '../../types/database'
+import { AppDataSource } from '../../config/database'
 
-export interface PaginationOptions {
-  page: number
-  limit: number
-}
+export abstract class BaseRepository<T> {
+  protected repository: any
 
-export interface PaginatedResult<T> {
-  data: T[]
-  pagination: {
-    page: number
-    limit: number
-    total: number
-    pages: number
-  }
-}
-
-export abstract class BaseRepository {
-  protected supabase: SupabaseClient<Database>
-
-  constructor(supabase: SupabaseClient<Database>) {
-    this.supabase = supabase
+  constructor(entityClass: new () => T) {
+    this.repository = AppDataSource.getRepository(entityClass)
   }
 
-  protected async paginate<T>(
-    query: any,
-    options: PaginationOptions
-  ): Promise<PaginatedResult<T>> {
-    const { page, limit } = options
-    const offset = (page - 1) * limit
+  async findById(id: string): Promise<T | null> {
+    return this.repository.findOne({ where: { id } })
+  }
 
-    // Get total count
-    const { count } = await query.select('*', { count: 'exact', head: true })
-    
-    // Get paginated data
-    const { data, error } = await query
-      .range(offset, offset + limit - 1)
+  async findOne(where: any): Promise<T | null> {
+    return this.repository.findOne({ where })
+  }
 
-    if (error) {
-      throw new Error(error.message)
-    }
+  async findMany(options?: any): Promise<T[]> {
+    return this.repository.find(options)
+  }
 
-    return {
-      data: data || [],
-      pagination: {
-        page,
-        limit,
-        total: count || 0,
-        pages: Math.ceil((count || 0) / limit)
-      }
-    }
+  async create(data: any): Promise<T> {
+    const entity = this.repository.create(data)
+    return this.repository.save(entity)
+  }
+
+  async update(id: string, data: any): Promise<T | null> {
+    await this.repository.update(id, data)
+    return this.findById(id)
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const result = await this.repository.delete(id)
+    return result.affected !== undefined && result.affected > 0
+  }
+
+  async exists(where: any): Promise<boolean> {
+    const count = await this.repository.count({ where })
+    return count > 0
+  }
+
+  async count(where?: any): Promise<number> {
+    return this.repository.count({ where })
   }
 }

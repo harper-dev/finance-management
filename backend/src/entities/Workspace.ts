@@ -1,46 +1,84 @@
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index, ManyToOne, JoinColumn, OneToMany } from 'typeorm'
+import { UserProfile } from './UserProfile'
+import { Account } from './Account'
+import { Transaction } from './Transaction'
+import { Budget } from './Budget'
+import { SavingsGoal } from './SavingsGoal'
+
 export type WorkspaceType = 'personal' | 'family' | 'team'
 export type MemberRole = 'owner' | 'admin' | 'member' | 'viewer'
 
-export interface Workspace {
+@Entity('workspaces')
+@Index(['ownerId'])
+export class Workspace {
+  @PrimaryGeneratedColumn('uuid')
   id: string
+
+  @Column({ type: 'varchar', length: 100 })
   name: string
+
+  @Column({ type: 'varchar', length: 20 })
   type: WorkspaceType
-  owner_id: string
+
+  @Column({ name: 'owner_id', type: 'uuid' })
+  ownerId: string
+
+  @Column({ type: 'varchar', length: 3, default: 'SGD' })
   currency: string
-  created_at: Date
-  updated_at: Date
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date
+
+  @ManyToOne(() => UserProfile)
+  @JoinColumn({ name: 'owner_id' })
+  owner: UserProfile
+
+  @OneToMany(() => Account, account => account.workspace)
+  accounts: Account[]
+
+  @OneToMany(() => Transaction, transaction => transaction.workspace)
+  transactions: Transaction[]
+
+  @OneToMany(() => Budget, budget => budget.workspace)
+  budgets: Budget[]
+
+  @OneToMany(() => SavingsGoal, goal => goal.workspace)
+  savingsGoals: SavingsGoal[]
 }
 
-export interface CreateWorkspace {
+export interface CreateWorkspaceDto {
   name: string
   type: WorkspaceType
-  owner_id: string
+  ownerId: string
   currency?: string
 }
 
-export interface UpdateWorkspace {
+export interface UpdateWorkspaceDto {
   name?: string
   type?: WorkspaceType
   currency?: string
 }
 
-export interface WorkspaceMember {
+export interface WorkspaceMemberDto {
   id: string
-  workspace_id: string
-  user_id: string
+  workspaceId: string
+  userId: string
   role: MemberRole
   permissions: Record<string, any>
-  joined_at: Date
+  joinedAt: Date
 }
 
-export interface CreateWorkspaceMember {
-  workspace_id: string
-  user_id: string
+export interface CreateWorkspaceMemberDto {
+  workspaceId: string
+  userId: string
   role: MemberRole
   permissions?: Record<string, any>
 }
 
-export interface UpdateWorkspaceMember {
+export interface UpdateWorkspaceMemberDto {
   role?: MemberRole
   permissions?: Record<string, any>
 }

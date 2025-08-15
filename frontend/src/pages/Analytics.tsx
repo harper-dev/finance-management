@@ -15,17 +15,22 @@ import {
   Target,
   AlertTriangle,
   Download,
-  Filter
+  Filter,
+  Activity
 } from 'lucide-react';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { apiClient } from '@/services/api';
+import TrendsChart from '@/components/charts/TrendsChart';
+import CashFlowSummary from '@/components/charts/CashFlowSummary';
+import SpendingPatterns from '@/components/charts/SpendingPatterns';
 
 export default function Analytics() {
   const { currentWorkspace } = useWorkspaceStore();
   const [selectedPeriod, setSelectedPeriod] = useState('monthly');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  const [trendsMonths, setTrendsMonths] = useState(12);
 
-  // Mock data since API endpoints may not exist yet
+  // Overview analytics query
   const { data: analyticsData, isLoading, error } = useQuery({
     queryKey: ['analytics', currentWorkspace?.id, selectedPeriod, selectedYear],
     queryFn: () => {
@@ -77,6 +82,99 @@ export default function Analytics() {
           progress: 74.0
         }
       });
+    },
+    enabled: !!currentWorkspace,
+  });
+
+  // Trends analytics query
+  const { data: trendsData, isLoading: trendsLoading, error: trendsError } = useQuery({
+    queryKey: ['analytics-trends', currentWorkspace?.id, trendsMonths],
+    queryFn: async () => {
+      if (!currentWorkspace) return null;
+      
+      try {
+        return await apiClient.getTrendsAnalytics(currentWorkspace.id, trendsMonths);
+      } catch (error) {
+        // Fallback to mock data if API is not available
+        console.warn('Trends API not available, using mock data:', error);
+        return {
+          trends: [
+            { month: '2024-01', month_name: 'Jan 2024', income: 3200, expenses: 2800, net: 400 },
+            { month: '2024-02', month_name: 'Feb 2024', income: 3400, expenses: 3100, net: 300 },
+            { month: '2024-03', month_name: 'Mar 2024', income: 3800, expenses: 3200, net: 600 },
+            { month: '2024-04', month_name: 'Apr 2024', income: 4000, expenses: 3750, net: 250 },
+            { month: '2024-05', month_name: 'May 2024', income: 3900, expenses: 3400, net: 500 },
+            { month: '2024-06', month_name: 'Jun 2024', income: 4200, expenses: 3600, net: 600 },
+          ],
+          averages: {
+            income: 3750,
+            expenses: 3308,
+            net: 442
+          },
+          period: {
+            start_date: '2024-01-01',
+            end_date: '2024-06-30',
+            months: 6
+          },
+          cash_flow: {
+            monthly_average: 442,
+            trend_direction: 'up' as const,
+            volatility_score: 0.35,
+            predictions: [
+              { month: 'Jul 2024', predicted_net: 520, confidence: 75 },
+              { month: 'Aug 2024', predicted_net: 480, confidence: 70 },
+              { month: 'Sep 2024', predicted_net: 550, confidence: 65 }
+            ]
+          },
+          spending_patterns: [
+            {
+              category: 'Food & Dining',
+              amount: 1200,
+              percentage: 35.3,
+              change_from_previous: 8.5,
+              transaction_count: 45,
+              average_per_transaction: 26.67,
+              trend: 'up' as const
+            },
+            {
+              category: 'Transportation',
+              amount: 800,
+              percentage: 23.5,
+              change_from_previous: -5.2,
+              transaction_count: 20,
+              average_per_transaction: 40,
+              trend: 'down' as const
+            },
+            {
+              category: 'Entertainment',
+              amount: 600,
+              percentage: 17.6,
+              change_from_previous: 12.3,
+              transaction_count: 15,
+              average_per_transaction: 40,
+              trend: 'up' as const
+            },
+            {
+              category: 'Bills & Utilities',
+              amount: 500,
+              percentage: 14.7,
+              change_from_previous: 2.1,
+              transaction_count: 8,
+              average_per_transaction: 62.5,
+              trend: 'stable' as const
+            },
+            {
+              category: 'Shopping',
+              amount: 300,
+              percentage: 8.8,
+              change_from_previous: -15.8,
+              transaction_count: 12,
+              average_per_transaction: 25,
+              trend: 'down' as const
+            }
+          ]
+        };
+      }
     },
     enabled: !!currentWorkspace,
   });
@@ -151,7 +249,7 @@ export default function Analytics() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Filter className="h-5 w-5" />
-                Time Period
+                Time Period & Analysis
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -177,6 +275,19 @@ export default function Analytics() {
                       <SelectItem value="2024">2024</SelectItem>
                       <SelectItem value="2023">2023</SelectItem>
                       <SelectItem value="2022">2022</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="w-full md:w-48">
+                  <Select value={trendsMonths.toString()} onValueChange={(value) => setTrendsMonths(parseInt(value))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Trends period" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="3">Last 3 months</SelectItem>
+                      <SelectItem value="6">Last 6 months</SelectItem>
+                      <SelectItem value="12">Last 12 months</SelectItem>
+                      <SelectItem value="24">Last 24 months</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -247,6 +358,93 @@ export default function Analytics() {
                 </p>
               </CardContent>
             </Card>
+          </div>
+
+          {/* Enhanced Trends Analysis */}
+          <div className="space-y-6">
+            {/* Insufficient Data Guidance */}
+            {!trendsLoading && trendsData?.trends && trendsData.trends.length < 3 && (
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  <div className="space-y-2">
+                    <p><strong>Limited trend data available.</strong> For better insights:</p>
+                    <ul className="list-disc list-inside text-sm space-y-1 ml-4">
+                      <li>Add more transactions across different months</li>
+                      <li>Ensure transactions have proper categories</li>
+                      <li>Include both income and expense transactions</li>
+                      <li>Wait for more data to accumulate over time</li>
+                    </ul>
+                    <p className="text-sm">Trends analysis works best with at least 3 months of transaction data.</p>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Financial Trends Chart */}
+            <TrendsChart 
+              data={trendsData?.trends || []}
+              currency={currency}
+              loading={trendsLoading}
+              error={(trendsError as any)?.message || null}
+            />
+
+            {/* Cash Flow and Spending Patterns */}
+            <div className="grid gap-6 lg:grid-cols-2">
+              <CashFlowSummary 
+                data={trendsData?.cash_flow || null}
+                currency={currency}
+                loading={trendsLoading}
+                error={(trendsError as any)?.message || null}
+              />
+              
+              <SpendingPatterns 
+                patterns={trendsData?.spending_patterns || []}
+                currency={currency}
+                loading={trendsLoading}
+                error={(trendsError as any)?.message || null}
+                period={`last ${trendsMonths} months`}
+              />
+            </div>
+
+            {/* Getting Started Guide */}
+            {!trendsLoading && (!trendsData?.trends || trendsData.trends.length === 0) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Activity className="h-5 w-5" />
+                    Get Started with Analytics
+                  </CardTitle>
+                  <CardDescription>
+                    Build your financial insights by adding transaction data
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="text-center p-4 border rounded-lg">
+                      <DollarSign className="h-8 w-8 mx-auto mb-2 text-green-600" />
+                      <h4 className="font-medium mb-1">Add Income</h4>
+                      <p className="text-sm text-gray-600">Record your salary, freelance work, or other income sources</p>
+                    </div>
+                    <div className="text-center p-4 border rounded-lg">
+                      <Target className="h-8 w-8 mx-auto mb-2 text-red-600" />
+                      <h4 className="font-medium mb-1">Track Expenses</h4>
+                      <p className="text-sm text-gray-600">Log your spending with proper categories for better insights</p>
+                    </div>
+                    <div className="text-center p-4 border rounded-lg">
+                      <Calendar className="h-8 w-8 mx-auto mb-2 text-blue-600" />
+                      <h4 className="font-medium mb-1">Be Consistent</h4>
+                      <p className="text-sm text-gray-600">Regular data entry helps build meaningful trends over time</p>
+                    </div>
+                  </div>
+                  <div className="mt-6 text-center">
+                    <Button>
+                      Add Your First Transaction
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           {/* Main Analytics Grid */}

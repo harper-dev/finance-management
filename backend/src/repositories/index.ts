@@ -1,7 +1,11 @@
-export * from './base/BaseRepository'
-export * from './UserProfileRepository'
-export * from './WorkspaceRepository'
-export * from './AccountRepository'
-export * from './TransactionRepository'
-export * from './BudgetRepository'
-export * from './SavingsGoalRepository'
+// Export refactored repositories
+export { BudgetRepository } from './BudgetRepository'
+export { AccountRepository } from './AccountRepository'
+export { TransactionRepository } from './TransactionRepository'
+export { WorkspaceRepository } from './WorkspaceRepository'
+export { SavingsGoalRepository } from './SavingsGoalRepository'
+export { UserProfileRepository } from './UserProfileRepository'
+export { UserSettingsRepository } from './UserSettingsRepository'
+
+// Export base repository
+export { BaseRepository } from './base/BaseRepository'

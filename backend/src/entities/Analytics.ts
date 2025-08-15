@@ -28,13 +28,38 @@ export interface FinancialTrend {
   expenses: number
   net: number
   balance: number
+  growth_rate?: number
+  category_breakdown?: CategoryBreakdown[]
 }
 
 export interface CategoryBreakdown {
   category: string
   amount: number
   percentage: number
-  transactions: number
+  change_from_previous: number
+}
+
+export interface CashFlowData {
+  monthly_average: number
+  trend_direction: 'up' | 'down' | 'stable'
+  volatility_score: number
+  predictions: MonthlyPrediction[]
+}
+
+export interface MonthlyPrediction {
+  period: string
+  predicted_income: number
+  predicted_expenses: number
+  predicted_net: number
+  confidence: number
+}
+
+export interface SpendingPattern {
+  category: string
+  monthly_average: number
+  trend: 'increasing' | 'decreasing' | 'stable'
+  seasonality_score: number
+  recent_change_percentage: number
 }
 
 export interface AccountSummary {

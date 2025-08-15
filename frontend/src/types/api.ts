@@ -34,6 +34,8 @@ export interface Workspace {
   type: 'personal' | 'family' | 'team'
   owner_id: string
   currency: string
+  timezone?: string
+  date_format?: string
   created_at: string
   updated_at: string
   workspace_members?: WorkspaceMember[]
@@ -208,6 +210,25 @@ export interface TrendsAnalytics {
     end_date: string
     months: number
   }
+  cash_flow?: {
+    monthly_average: number
+    trend_direction: 'up' | 'down' | 'stable'
+    volatility_score: number
+    predictions?: Array<{
+      month: string
+      predicted_net: number
+      confidence: number
+    }>
+  }
+  spending_patterns?: Array<{
+    category: string
+    amount: number
+    percentage: number
+    change_from_previous: number
+    transaction_count: number
+    average_per_transaction: number
+    trend: 'up' | 'down' | 'stable'
+  }>
 }
 
 // Form types
@@ -255,4 +276,42 @@ export interface CreateSavingsGoalData {
   target_date?: string
   category?: string
   description?: string
+}
+
+// Settings types
+export interface UserSettings {
+  id: string
+  user_id: string
+  display_name: string
+  preferred_currency: string
+  timezone: string
+  date_format: string
+  language: string
+  email_notifications: boolean
+  push_notifications: boolean
+  weekly_reports: boolean
+  budget_alerts: boolean
+  goal_reminders: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface UpdateUserSettingsData {
+  display_name?: string
+  preferred_currency?: string
+  timezone?: string
+  date_format?: string
+  language?: string
+  email_notifications?: boolean
+  push_notifications?: boolean
+  weekly_reports?: boolean
+  budget_alerts?: boolean
+  goal_reminders?: boolean
+}
+
+export interface UpdateWorkspaceSettingsData {
+  name?: string
+  currency?: string
+  timezone?: string
+  date_format?: string
 }

@@ -20,7 +20,7 @@ class AuthService {
   private baseURL: string
 
   constructor() {
-    this.baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api/v1'
+    this.baseURL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3002/api/v1'
   }
 
   async login(data: LoginData): Promise<AuthResponse> {

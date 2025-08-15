@@ -1,171 +1,102 @@
-import { SupabaseClient } from '@supabase/supabase-js'
-import { Database } from '../types/database'
-import { Account, CreateAccount, UpdateAccount } from '../entities'
-import { BaseRepository, PaginationOptions, PaginatedResult } from './base/BaseRepository'
+import { Repository, FindOptionsWhere, FindManyOptions } from 'typeorm'
+import { Account } from '../entities/Account'
+import { Transaction } from '../entities/Transaction'
+import { BaseRepository } from './base/BaseRepository'
+import { AppDataSource } from '../config/database'
+import { CreateAccountDto, UpdateAccountDto } from '../entities'
 
 export interface AccountFilter {
-  workspace_id: string
-  is_active?: boolean
+  workspaceId: string
+  isActive?: boolean
   type?: string
 }
 
-export class AccountRepository extends BaseRepository {
-  constructor(supabase: SupabaseClient<Database>) {
-    super(supabase)
+export class AccountRepository extends BaseRepository<Account> {
+  private transactionRepository: Repository<Transaction>
+
+  constructor() {
+    super(Account)
+    this.transactionRepository = AppDataSource.getRepository(Transaction)
   }
 
-  async findMany(
+  async findByFilter(
     filter: AccountFilter,
-    pagination?: PaginationOptions
-  ): Promise<PaginatedResult<Account> | Account[]> {
-    let query = this.supabase
-      .from('accounts')
-      .select('*')
-      .eq('workspace_id', filter.workspace_id)
-      .order('created_at', { ascending: false })
+    options?: FindManyOptions<Account>
+  ): Promise<Account[]> {
+    const where: FindOptionsWhere<Account> = {
+      workspaceId: filter.workspaceId
+    }
 
-    if (filter.is_active !== undefined) {
-      query = query.eq('is_active', filter.is_active)
+    if (filter.isActive !== undefined) {
+      where.isActive = filter.isActive
     }
 
     if (filter.type) {
-      query = query.eq('type', filter.type)
+      where.type = filter.type as any
     }
 
-    if (pagination) {
-      return await this.paginate<Account>(query, pagination)
-    }
-
-    const { data, error } = await query
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return data.map(item => this.mapToEntity(item))
+    return this.repository.find({
+      where,
+      order: { createdAt: 'DESC' },
+      ...options
+    })
   }
 
-  async findById(id: string): Promise<Account | null> {
-    const { data, error } = await this.supabase
-      .from('accounts')
-      .select('*')
-      .eq('id', id)
-      .single()
-
-    if (error && error.code !== 'PGRST116') {
-      throw new Error(error.message)
-    }
-
-    return data ? this.mapToEntity(data) : null
+  async findActiveAccounts(workspaceId: string): Promise<Account[]> {
+    return this.findByFilter({ workspaceId, isActive: true })
   }
 
-  async create(account: CreateAccount): Promise<Account> {
-    const { data, error } = await this.supabase
-      .from('accounts')
-      .insert([account])
-      .select()
-      .single()
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return this.mapToEntity(data)
+  async updateBalance(accountId: string, newBalance: number): Promise<Account | null> {
+    return this.update(accountId, { balance: newBalance })
   }
 
-  async update(id: string, updates: UpdateAccount): Promise<Account> {
-    const { data, error } = await this.supabase
-      .from('accounts')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single()
+  async getAccountWithTransactions(accountId: string): Promise<{
+    account: Account
+    transactions: Transaction[]
+  } | null> {
+    const account = await this.findById(accountId)
+    if (!account) return null
 
-    if (error) {
-      throw new Error(error.message)
-    }
+    const transactions = await this.transactionRepository.find({
+      where: { accountId },
+      order: { transactionDate: 'DESC' },
+      take: 50 // Limit to last 50 transactions
+    })
 
-    return this.mapToEntity(data)
+    return { account, transactions }
   }
 
-  async updateBalance(id: string, balance: number): Promise<Account> {
-    const { data, error } = await this.supabase
-      .from('accounts')
-      .update({ balance })
-      .eq('id', id)
-      .select()
-      .single()
+  async getAccountSummary(accountId: string): Promise<{
+    account: Account
+    totalIncome: number
+    totalExpenses: number
+    netChange: number
+    transactionCount: number
+  } | null> {
+    const account = await this.findById(accountId)
+    if (!account) return null
 
-    if (error) {
-      throw new Error(error.message)
-    }
+    const transactions = await this.transactionRepository.find({
+      where: { accountId }
+    })
 
-    return this.mapToEntity(data)
-  }
+    const totalIncome = transactions
+      .filter(t => t.type === 'income')
+      .reduce((sum, t) => sum + Number(t.amount), 0)
 
-  async softDelete(id: string): Promise<Account> {
-    const { data, error } = await this.supabase
-      .from('accounts')
-      .update({ is_active: false })
-      .eq('id', id)
-      .select()
-      .single()
+    const totalExpenses = transactions
+      .filter(t => t.type === 'expense')
+      .reduce((sum, t) => sum + Number(t.amount), 0)
 
-    if (error) {
-      throw new Error(error.message)
-    }
+    const netChange = totalIncome - totalExpenses
+    const transactionCount = transactions.length
 
-    return this.mapToEntity(data)
-  }
-
-  async delete(id: string): Promise<void> {
-    const { error } = await this.supabase
-      .from('accounts')
-      .delete()
-      .eq('id', id)
-
-    if (error) {
-      throw new Error(error.message)
-    }
-  }
-
-  async getBalanceHistory(accountId: string, days: number = 30): Promise<Array<{date: string, balance: number}>> {
-    const { data, error } = await this.supabase
-      .rpc('get_account_balance_history', {
-        account_id: accountId,
-        days_back: days
-      })
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return data || []
-  }
-
-  async recalculateBalance(accountId: string): Promise<number> {
-    const { data, error } = await this.supabase
-      .rpc('calculate_account_balance', { account_id: accountId })
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return data
-  }
-
-  private mapToEntity(data: any): Account {
     return {
-      id: data.id,
-      workspace_id: data.workspace_id,
-      name: data.name,
-      type: data.type,
-      currency: data.currency,
-      balance: parseFloat(data.balance),
-      is_active: data.is_active,
-      created_by: data.created_by,
-      created_at: new Date(data.created_at),
-      updated_at: new Date(data.updated_at)
+      account,
+      totalIncome,
+      totalExpenses,
+      netChange,
+      transactionCount
     }
   }
 }

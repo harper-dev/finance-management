@@ -1,10 +1,10 @@
 import { Hono } from 'hono'
-import { getSupabaseClient } from '../services/supabase'
-import { BudgetService } from '../services'
+import { BudgetService } from '../services/BudgetService'
 import { requireAuth, AuthUser } from '../middleware/auth'
-import { successResponse, errorResponse, notFoundResponse } from '../utils/response'
-import { validateRequest, budgetCreateSchema, budgetUpdateSchema, uuidSchema, paginationSchema } from '../utils/validation'
+import { ResponseBuilder } from '../utils/apiResponse'
+import { ValidationUtils } from '../utils/validation'
 import { Env } from '../types/env'
+import { CreateBudgetDto, UpdateBudgetDto } from '../entities'
 
 const budgets = new Hono<{ Bindings: Env, Variables: { user: AuthUser } }>()
 
@@ -16,37 +16,30 @@ budgets.get('/', requireAuth(), async (c) => {
     const isActive = c.req.query('is_active')
     const period = c.req.query('period')
     
-    const query = c.req.query()
-    const pagination = query.page ? validateRequest(paginationSchema, {
-      page: query.page,
-      limit: query.limit
-    }) as { page: number; limit: number } : undefined
-    
     if (!workspaceId) {
-      return errorResponse(c, 'workspace_id is required', 400)
+      return c.json(ResponseBuilder.error('workspace_id is required'), 400)
     }
     
-    validateRequest(uuidSchema, workspaceId)
-    
-    const supabase = getSupabaseClient(c.env)
-    const budgetService = new BudgetService(supabase)
-    
-    const filters = {
-      is_active: isActive !== undefined ? isActive === 'true' : undefined,
-      period
+    if (!ValidationUtils.isValidUUID(workspaceId)) {
+      return c.json(ResponseBuilder.validationError('Invalid workspace ID'), 400)
     }
     
-    const result = await budgetService.getBudgets(workspaceId, user.id, filters, pagination)
+    const budgetService = new BudgetService()
     
-    return successResponse(c, result)
+    const filters: any = { workspaceId }
+    if (isActive !== undefined) {
+      filters.isActive = isActive === 'true'
+    }
+    if (period) {
+      filters.period = period
+    }
+    
+    const budgets = await budgetService.getBudgetsByWorkspace(workspaceId, filters.isActive)
+    
+    return c.json(ResponseBuilder.success(budgets))
   } catch (error) {
-    if (error instanceof Error && error.message.includes('Access denied')) {
-      return errorResponse(c, error.message, 403)
-    }
-    if (error instanceof Error && error.message.includes('Validation failed')) {
-      return errorResponse(c, error.message, 422)
-    }
-    return errorResponse(c, `Failed to fetch budgets: ${error}`, 500)
+    console.error('Failed to fetch budgets:', error)
+    return c.json(ResponseBuilder.serverError('Failed to fetch budgets'), 500)
   }
 })
 
@@ -54,22 +47,23 @@ budgets.get('/', requireAuth(), async (c) => {
 budgets.get('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const budgetId = validateRequest(uuidSchema, c.req.param('id'))
+    const budgetId = c.req.param('id')
     
-    const supabase = getSupabaseClient(c.env)
-    const budgetService = new BudgetService(supabase)
+    if (!ValidationUtils.isValidUUID(budgetId)) {
+      return c.json(ResponseBuilder.validationError('Invalid budget ID'), 400)
+    }
     
-    const budget = await budgetService.getBudgetById(budgetId, user.id)
+    const budgetService = new BudgetService()
+    const budget = await budgetService.getBudgetWithSpending(budgetId)
     
-    return successResponse(c, budget)
+    if (!budget) {
+      return c.json(ResponseBuilder.notFound('Budget'), 404)
+    }
+    
+    return c.json(ResponseBuilder.success(budget))
   } catch (error) {
-    if (error instanceof Error && error.message.includes('Access denied')) {
-      return errorResponse(c, error.message, 403)
-    }
-    if (error instanceof Error && error.message.includes('not found')) {
-      return errorResponse(c, error.message, 404)
-    }
-    return errorResponse(c, `Failed to fetch budget: ${error}`, 500)
+    console.error('Failed to fetch budget:', error)
+    return c.json(ResponseBuilder.serverError('Failed to fetch budget'), 500)
   }
 })
 
@@ -78,37 +72,46 @@ budgets.post('/', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     const body = await c.req.json()
-    const validatedData = validateRequest(budgetCreateSchema, body)
     const workspaceId = c.req.query('workspace_id')
     
     if (!workspaceId) {
-      return errorResponse(c, 'workspace_id is required', 400)
+      return c.json(ResponseBuilder.error('workspace_id is required'), 400)
     }
     
-    validateRequest(uuidSchema, workspaceId)
-    
-    const supabase = getSupabaseClient(c.env)
-    const budgetService = new BudgetService(supabase)
-    
-    const budgetData = {
-      ...validatedData,
-      workspace_id: workspaceId,
-      created_by: user.id,
-      start_date: new Date(validatedData.start_date),
-      end_date: validatedData.end_date ? new Date(validatedData.end_date) : undefined
+    if (!ValidationUtils.isValidUUID(workspaceId)) {
+      return c.json(ResponseBuilder.validationError('Invalid workspace ID'), 400)
     }
     
-    const budget = await budgetService.createBudget(budgetData, user.id)
+    // Validate required fields
+    const requiredFields = ['name', 'category', 'amount', 'period', 'startDate']
+    for (const field of requiredFields) {
+      if (!body[field]) {
+        return c.json(ResponseBuilder.validationError(`${field} is required`), 400)
+      }
+    }
     
-    return successResponse(c, budget, 'Budget created successfully')
+    const budgetService = new BudgetService()
+    
+    const budgetData: CreateBudgetDto = {
+      workspaceId,
+      name: body.name,
+      category: body.category,
+      amount: body.amount,
+      period: body.period,
+      startDate: new Date(body.startDate),
+      endDate: body.endDate ? new Date(body.endDate) : undefined,
+      createdBy: user.id
+    }
+    
+    const budget = await budgetService.createBudget(budgetData)
+    
+    return c.json(ResponseBuilder.success(budget, 'Budget created successfully'), 201)
   } catch (error) {
-    if (error instanceof Error && error.message.includes('Access denied')) {
-      return errorResponse(c, error.message, 403)
+    console.error('Failed to create budget:', error)
+    if (error instanceof Error) {
+      return c.json(ResponseBuilder.error('Failed to create budget', error.message), 400)
     }
-    if (error instanceof Error && error.message.includes('Validation failed')) {
-      return errorResponse(c, error.message, 422)
-    }
-    return errorResponse(c, `Failed to create budget: ${error}`, 500)
+    return c.json(ResponseBuilder.serverError('Failed to create budget'), 500)
   }
 })
 
@@ -116,34 +119,37 @@ budgets.post('/', requireAuth(), async (c) => {
 budgets.put('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const budgetId = validateRequest(uuidSchema, c.req.param('id'))
+    const budgetId = c.req.param('id')
     const body = await c.req.json()
-    const validatedData = validateRequest(budgetUpdateSchema, body)
     
-    const supabase = getSupabaseClient(c.env)
-    const budgetService = new BudgetService(supabase)
-    
-    // Convert string dates to Date objects if present
-    const updateData = {
-      ...validatedData,
-      start_date: validatedData.start_date ? new Date(validatedData.start_date) : undefined,
-      end_date: validatedData.end_date ? new Date(validatedData.end_date) : undefined
+    if (!ValidationUtils.isValidUUID(budgetId)) {
+      return c.json(ResponseBuilder.validationError('Invalid budget ID'), 400)
     }
     
-    const budget = await budgetService.updateBudget(budgetId, updateData, user.id)
+    const budgetService = new BudgetService()
     
-    return successResponse(c, budget, 'Budget updated successfully')
+    const updateData: UpdateBudgetDto = {}
+    if (body.name !== undefined) updateData.name = body.name
+    if (body.category !== undefined) updateData.category = body.category
+    if (body.amount !== undefined) updateData.amount = body.amount
+    if (body.period !== undefined) updateData.period = body.period
+    if (body.startDate !== undefined) updateData.startDate = new Date(body.startDate)
+    if (body.endDate !== undefined) updateData.endDate = body.endDate ? new Date(body.endDate) : undefined
+    if (body.isActive !== undefined) updateData.isActive = body.isActive
+    
+    const budget = await budgetService.updateBudget(budgetId, updateData)
+    
+    if (!budget) {
+      return c.json(ResponseBuilder.notFound('Budget'), 404)
+    }
+    
+    return c.json(ResponseBuilder.success(budget, 'Budget updated successfully'))
   } catch (error) {
-    if (error instanceof Error && error.message.includes('Access denied')) {
-      return errorResponse(c, error.message, 403)
+    console.error('Failed to update budget:', error)
+    if (error instanceof Error) {
+      return c.json(ResponseBuilder.error('Failed to update budget', error.message), 400)
     }
-    if (error instanceof Error && error.message.includes('not found')) {
-      return errorResponse(c, error.message, 404)
-    }
-    if (error instanceof Error && error.message.includes('Validation failed')) {
-      return errorResponse(c, error.message, 422)
-    }
-    return errorResponse(c, `Failed to update budget: ${error}`, 500)
+    return c.json(ResponseBuilder.serverError('Failed to update budget'), 500)
   }
 })
 
@@ -151,22 +157,87 @@ budgets.put('/:id', requireAuth(), async (c) => {
 budgets.delete('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const budgetId = validateRequest(uuidSchema, c.req.param('id'))
+    const budgetId = c.req.param('id')
     
-    const supabase = getSupabaseClient(c.env)
-    const budgetService = new BudgetService(supabase)
+    if (!ValidationUtils.isValidUUID(budgetId)) {
+      return c.json(ResponseBuilder.validationError('Invalid budget ID'), 400)
+    }
     
-    await budgetService.deleteBudget(budgetId, user.id)
+    const budgetService = new BudgetService()
+    const success = await budgetService.delete(budgetId)
     
-    return successResponse(c, null, 'Budget deleted successfully')
+    if (!success) {
+      return c.json(ResponseBuilder.notFound('Budget'), 404)
+    }
+    
+    return c.json(ResponseBuilder.success(null, 'Budget deleted successfully'))
   } catch (error) {
-    if (error instanceof Error && error.message.includes('Access denied')) {
-      return errorResponse(c, error.message, 403)
+    console.error('Failed to delete budget:', error)
+    return c.json(ResponseBuilder.serverError('Failed to delete budget'), 500)
+  }
+})
+
+// Get budget with spending details
+budgets.get('/:id/spending', requireAuth(), async (c) => {
+  try {
+    const user = c.get('user')
+    const budgetId = c.req.param('id')
+    
+    if (!ValidationUtils.isValidUUID(budgetId)) {
+      return c.json(ResponseBuilder.validationError('Invalid budget ID'), 400)
     }
-    if (error instanceof Error && error.message.includes('not found')) {
-      return errorResponse(c, error.message, 404)
+    
+    const budgetService = new BudgetService()
+    const budgetWithSpending = await budgetService.getBudgetWithSpending(budgetId)
+    
+    if (!budgetWithSpending) {
+      return c.json(ResponseBuilder.notFound('Budget'), 404)
     }
-    return errorResponse(c, `Failed to delete budget: ${error}`, 500)
+    
+    return c.json(ResponseBuilder.success(budgetWithSpending))
+  } catch (error) {
+    console.error('Failed to fetch budget spending:', error)
+    return c.json(ResponseBuilder.serverError('Failed to fetch budget spending'), 500)
+  }
+})
+
+// Get active budgets with spending for a workspace
+budgets.get('/workspace/:workspaceId/active', requireAuth(), async (c) => {
+  try {
+    const user = c.get('user')
+    const workspaceId = c.req.param('workspaceId')
+    
+    if (!ValidationUtils.isValidUUID(workspaceId)) {
+      return c.json(ResponseBuilder.validationError('Invalid workspace ID'), 400)
+    }
+    
+    const budgetService = new BudgetService()
+    const activeBudgets = await budgetService.getActiveBudgetsWithSpending(workspaceId)
+    
+    return c.json(ResponseBuilder.success(activeBudgets))
+  } catch (error) {
+    console.error('Failed to fetch active budgets:', error)
+    return c.json(ResponseBuilder.serverError('Failed to fetch active budgets'), 500)
+  }
+})
+
+// Get budget summary for a workspace
+budgets.get('/workspace/:workspaceId/summary', requireAuth(), async (c) => {
+  try {
+    const user = c.get('user')
+    const workspaceId = c.req.param('workspaceId')
+    
+    if (!ValidationUtils.isValidUUID(workspaceId)) {
+      return c.json(ResponseBuilder.validationError('Invalid workspace ID'), 400)
+    }
+    
+    const budgetService = new BudgetService()
+    const summary = await budgetService.getBudgetSummary(workspaceId)
+    
+    return c.json(ResponseBuilder.success(summary))
+  } catch (error) {
+    console.error('Failed to fetch budget summary:', error)
+    return c.json(ResponseBuilder.serverError('Failed to fetch budget summary'), 500)
   }
 })
 

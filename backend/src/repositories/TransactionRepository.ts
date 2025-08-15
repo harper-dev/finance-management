@@ -1,264 +1,212 @@
-import { SupabaseClient } from '@supabase/supabase-js'
-import { Database } from '../types/database'
-import { Transaction, CreateTransaction, UpdateTransaction, TransactionFilter } from '../entities'
-import { BaseRepository, PaginationOptions, PaginatedResult } from './base/BaseRepository'
+import { Repository, FindOptionsWhere, FindManyOptions, Between } from 'typeorm'
+import { Transaction } from '../entities/Transaction'
+import { Account } from '../entities/Account'
+import { BaseRepository } from './base/BaseRepository'
+import { AppDataSource } from '../config/database'
+import { CreateTransactionDto, UpdateTransactionDto, TransactionFilterDto } from '../entities'
 
-export interface TransactionQuery extends TransactionFilter {
-  workspace_id: string
-}
+export class TransactionRepository extends BaseRepository<Transaction> {
+  private accountRepository: Repository<Account>
 
-export class TransactionRepository extends BaseRepository {
-  constructor(supabase: SupabaseClient<Database>) {
-    super(supabase)
+  constructor() {
+    super(Transaction)
+    this.accountRepository = AppDataSource.getRepository(Account)
   }
 
-  async findMany(
-    filter: TransactionQuery,
-    pagination?: PaginationOptions
-  ): Promise<PaginatedResult<Transaction> | Transaction[]> {
-    let query = this.supabase
-      .from('transactions')
-      .select(`
-        *,
-        accounts (
-          id,
-          name,
-          type
-        )
-      `)
-      .eq('workspace_id', filter.workspace_id)
-      .order('transaction_date', { ascending: false })
-      .order('created_at', { ascending: false })
+  async findByFilter(
+    filter: TransactionFilterDto,
+    options?: FindManyOptions<Transaction>
+  ): Promise<Transaction[]> {
+    const where: FindOptionsWhere<Transaction> = {}
 
-    if (filter.account_id) {
-      query = query.eq('account_id', filter.account_id)
+    if (filter.accountId) {
+      where.accountId = filter.accountId
     }
 
     if (filter.type) {
-      query = query.eq('type', filter.type)
+      where.type = filter.type
     }
 
     if (filter.category) {
-      query = query.eq('category', filter.category)
+      where.category = filter.category
     }
 
-    if (filter.start_date) {
-      query = query.gte('transaction_date', filter.start_date.toISOString().split('T')[0])
+    if (filter.startDate && filter.endDate) {
+      where.transactionDate = Between(filter.startDate, filter.endDate)
     }
 
-    if (filter.end_date) {
-      query = query.lte('transaction_date', filter.end_date.toISOString().split('T')[0])
+    if (filter.minAmount !== undefined || filter.maxAmount !== undefined) {
+      if (filter.minAmount !== undefined && filter.maxAmount !== undefined) {
+        where.amount = Between(filter.minAmount, filter.maxAmount) as any
+      } else if (filter.minAmount !== undefined) {
+        where.amount = { gte: filter.minAmount } as any
+      } else if (filter.maxAmount !== undefined) {
+        where.amount = { lte: filter.maxAmount } as any
+      }
     }
 
-    if (filter.min_amount !== undefined) {
-      query = query.gte('amount', filter.min_amount)
-    }
-
-    if (filter.max_amount !== undefined) {
-      query = query.lte('amount', filter.max_amount)
-    }
-
-    if (pagination) {
-      return await this.paginate<Transaction>(query, pagination)
-    }
-
-    const { data, error } = await query
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return data.map(item => this.mapToEntity(item))
+    return this.repository.find({
+      where,
+      order: { transactionDate: 'DESC' },
+      ...options
+    })
   }
 
-  async findById(id: string): Promise<Transaction | null> {
-    const { data, error } = await this.supabase
-      .from('transactions')
-      .select(`
-        *,
-        accounts (
-          id,
-          name,
-          type,
-          currency
-        )
-      `)
-      .eq('id', id)
-      .single()
-
-    if (error && error.code !== 'PGRST116') {
-      throw new Error(error.message)
-    }
-
-    return data ? this.mapToEntity(data) : null
-  }
-
-  async create(transaction: CreateTransaction): Promise<Transaction> {
-    const { data, error } = await this.supabase
-      .from('transactions')
-      .insert([{
-        ...transaction,
-        transaction_date: transaction.transaction_date.toISOString().split('T')[0]
-      }])
-      .select()
-      .single()
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return this.mapToEntity(data)
-  }
-
-  async createMany(transactions: CreateTransaction[]): Promise<Transaction[]> {
-    const { data, error } = await this.supabase
-      .from('transactions')
-      .insert(transactions.map(t => ({
-        ...t,
-        transaction_date: t.transaction_date.toISOString().split('T')[0]
-      })))
-      .select()
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return data.map(item => this.mapToEntity(item))
-  }
-
-  async update(id: string, updates: UpdateTransaction): Promise<Transaction> {
-    const updateData: any = { ...updates }
-    if (updates.transaction_date) {
-      updateData.transaction_date = updates.transaction_date.toISOString().split('T')[0]
-    }
-
-    const { data, error } = await this.supabase
-      .from('transactions')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single()
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return this.mapToEntity(data)
-  }
-
-  async delete(id: string): Promise<void> {
-    const { error } = await this.supabase
-      .from('transactions')
-      .delete()
-      .eq('id', id)
-
-    if (error) {
-      throw new Error(error.message)
-    }
-  }
-
-  async getSpendingByCategory(
+  async findByWorkspace(
     workspaceId: string,
-    startDate?: Date,
-    endDate?: Date
-  ): Promise<Array<{category: string, amount: number, count: number}>> {
-    let query = this.supabase
-      .from('transactions')
-      .select('category, amount')
-      .eq('workspace_id', workspaceId)
-      .eq('type', 'expense')
-      .not('category', 'is', null)
+    options?: FindManyOptions<Transaction>
+  ): Promise<Transaction[]> {
+    return this.repository.find({
+      where: { workspaceId },
+      order: { transactionDate: 'DESC' },
+      ...options
+    })
+  }
 
-    if (startDate) {
-      query = query.gte('transaction_date', startDate.toISOString().split('T')[0])
-    }
+  async findByAccount(
+    accountId: string,
+    options?: FindManyOptions<Transaction>
+  ): Promise<Transaction[]> {
+    return this.repository.find({
+      where: { accountId },
+      order: { transactionDate: 'DESC' },
+      ...options
+    })
+  }
 
-    if (endDate) {
-      query = query.lte('transaction_date', endDate.toISOString().split('T')[0])
-    }
+  async getCurrentMonthTransactions(workspaceId: string): Promise<Transaction[]> {
+    const now = new Date()
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
 
-    const { data, error } = await query
+    return this.repository.find({
+      where: {
+        workspaceId,
+        transactionDate: Between(startOfMonth, endOfMonth)
+      },
+      order: { transactionDate: 'DESC' }
+    })
+  }
 
-    if (error) {
-      throw new Error(error.message)
-    }
+  async getTransactionsByDateRange(
+    workspaceId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<Transaction[]> {
+    return this.repository.find({
+      where: {
+        workspaceId,
+        transactionDate: Between(startDate, endDate)
+      },
+      order: { transactionDate: 'DESC' }
+    })
+  }
 
-    const categoryTotals = new Map<string, {amount: number, count: number}>()
+  async getCategorySummary(
+    workspaceId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<Array<{ category: string; total: number; count: number }>> {
+    const transactions = await this.getTransactionsByDateRange(workspaceId, startDate, endDate)
     
-    data.forEach(transaction => {
-      const category = transaction.category || 'Other'
-      const current = categoryTotals.get(category) || {amount: 0, count: 0}
-      categoryTotals.set(category, {
-        amount: current.amount + parseFloat(transaction.amount.toString()),
-        count: current.count + 1
-      })
+    const categoryMap = new Map<string, { total: number; count: number }>()
+    
+    transactions.forEach(transaction => {
+      if (transaction.category) {
+        const existing = categoryMap.get(transaction.category) || { total: 0, count: 0 }
+        existing.total += Number(transaction.amount)
+        existing.count += 1
+        categoryMap.set(transaction.category, existing)
+      }
     })
 
-    return Array.from(categoryTotals.entries()).map(([category, data]) => ({
+    return Array.from(categoryMap.entries()).map(([category, data]) => ({
       category,
-      amount: data.amount,
+      total: data.total,
       count: data.count
     }))
   }
 
-  async getIncomeByCategory(
+  async getMonthlySummary(
     workspaceId: string,
-    startDate?: Date,
-    endDate?: Date
-  ): Promise<Array<{category: string, amount: number, count: number}>> {
-    let query = this.supabase
-      .from('transactions')
-      .select('category, amount')
-      .eq('workspace_id', workspaceId)
-      .eq('type', 'income')
-      .not('category', 'is', null)
+    year: number
+  ): Promise<Array<{ month: number; income: number; expenses: number; net: number }>> {
+    const startDate = new Date(year, 0, 1)
+    const endDate = new Date(year, 11, 31)
 
-    if (startDate) {
-      query = query.gte('transaction_date', startDate.toISOString().split('T')[0])
-    }
-
-    if (endDate) {
-      query = query.lte('transaction_date', endDate.toISOString().split('T')[0])
-    }
-
-    const { data, error } = await query
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    const categoryTotals = new Map<string, {amount: number, count: number}>()
+    const transactions = await this.getTransactionsByDateRange(workspaceId, startDate, endDate)
     
-    data.forEach(transaction => {
-      const category = transaction.category || 'Other'
-      const current = categoryTotals.get(category) || {amount: 0, count: 0}
-      categoryTotals.set(category, {
-        amount: current.amount + parseFloat(transaction.amount.toString()),
-        count: current.count + 1
-      })
+    const monthlyData = new Map<number, { income: number; expenses: number }>()
+    
+    // Initialize all months
+    for (let month = 0; month < 12; month++) {
+      monthlyData.set(month, { income: 0, expenses: 0 })
+    }
+
+    transactions.forEach(transaction => {
+      const month = transaction.transactionDate.getMonth()
+      const current = monthlyData.get(month)!
+      
+      if (transaction.type === 'income') {
+        current.income += Number(transaction.amount)
+      } else if (transaction.type === 'expense') {
+        current.expenses += Number(transaction.amount)
+      }
     })
 
-    return Array.from(categoryTotals.entries()).map(([category, data]) => ({
-      category,
-      amount: data.amount,
-      count: data.count
+    return Array.from(monthlyData.entries()).map(([month, data]) => ({
+      month: month + 1,
+      income: data.income,
+      expenses: data.expenses,
+      net: data.income - data.expenses
     }))
   }
 
-  private mapToEntity(data: any): Transaction {
-    return {
-      id: data.id,
-      workspace_id: data.workspace_id,
-      account_id: data.account_id,
-      type: data.type,
-      amount: parseFloat(data.amount),
-      currency: data.currency,
-      category: data.category,
-      description: data.description,
-      transaction_date: new Date(data.transaction_date),
-      created_by: data.created_by,
-      created_at: new Date(data.created_at),
-      updated_at: new Date(data.updated_at)
+  async createTransaction(
+    transactionData: CreateTransactionDto
+  ): Promise<Transaction> {
+    // Validate account exists and belongs to workspace
+    const account = await this.accountRepository.findOne({
+      where: { id: transactionData.accountId, workspaceId: transactionData.workspaceId }
+    })
+
+    if (!account) {
+      throw new Error('Account not found or does not belong to workspace')
     }
+
+    // Create transaction
+    const transaction = await this.create(transactionData)
+
+    // Update account balance
+    if (transaction.type === 'income') {
+      account.balance = Number(account.balance) + Number(transaction.amount)
+    } else if (transaction.type === 'expense') {
+      account.balance = Number(account.balance) - Number(transaction.amount)
+    }
+
+    await this.accountRepository.save(account)
+
+    return transaction
+  }
+
+  async deleteTransaction(id: string): Promise<boolean> {
+    const transaction = await this.findById(id)
+    if (!transaction) return false
+
+    // Update account balance
+    const account = await this.accountRepository.findOne({
+      where: { id: transaction.accountId }
+    })
+
+    if (account) {
+      if (transaction.type === 'income') {
+        account.balance = Number(account.balance) - Number(transaction.amount)
+      } else if (transaction.type === 'expense') {
+        account.balance = Number(account.balance) + Number(transaction.amount)
+      }
+      await this.accountRepository.save(account)
+    }
+
+    return this.delete(id)
   }
 }

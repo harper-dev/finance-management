@@ -1,31 +1,59 @@
-export type AccountType = 'cash' | 'bank' | 'investment' | 'asset' | 'debt'
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index, ManyToOne, JoinColumn } from 'typeorm'
+import { Workspace } from './Workspace'
 
-export interface Account {
+@Entity('accounts')
+@Index(['workspaceId'])
+@Index(['createdBy'])
+export class Account {
+  @PrimaryGeneratedColumn('uuid')
   id: string
-  workspace_id: string
+
+  @Column({ name: 'workspace_id', type: 'uuid' })
+  workspaceId: string
+
+  @Column({ type: 'varchar', length: 100 })
   name: string
-  type: AccountType
-  currency: string
+
+  @Column({ type: 'varchar', length: 50 })
+  type: string
+
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   balance: number
-  is_active: boolean
-  created_by: string
-  created_at: Date
-  updated_at: Date
+
+  @Column({ type: 'varchar', length: 3, default: 'SGD' })
+  currency: string
+
+  @Column({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean
+
+  @Column({ name: 'created_by', type: 'uuid' })
+  createdBy: string
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date
+
+  @ManyToOne(() => Workspace)
+  @JoinColumn({ name: 'workspace_id' })
+  workspace: Workspace
 }
 
-export interface CreateAccount {
-  workspace_id: string
+export interface CreateAccountDto {
+  workspaceId: string
   name: string
-  type: AccountType
-  currency?: string
+  type: string
   balance?: number
-  created_by: string
+  currency?: string
+  isActive?: boolean
+  createdBy: string
 }
 
-export interface UpdateAccount {
+export interface UpdateAccountDto {
   name?: string
-  type?: AccountType
-  currency?: string
+  type?: string
   balance?: number
-  is_active?: boolean
+  currency?: string
+  isActive?: boolean
 }

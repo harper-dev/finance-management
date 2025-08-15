@@ -34,6 +34,56 @@ export interface Database {
           updated_at?: string
         }
       }
+      user_settings: {
+        Row: {
+          id: string
+          user_id: string
+          display_name: string | null
+          preferred_currency: string
+          timezone: string
+          date_format: string
+          language: string
+          email_notifications: boolean
+          push_notifications: boolean
+          weekly_reports: boolean
+          budget_alerts: boolean
+          goal_reminders: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          display_name?: string | null
+          preferred_currency?: string
+          timezone?: string
+          date_format?: string
+          language?: string
+          email_notifications?: boolean
+          push_notifications?: boolean
+          weekly_reports?: boolean
+          budget_alerts?: boolean
+          goal_reminders?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          display_name?: string | null
+          preferred_currency?: string
+          timezone?: string
+          date_format?: string
+          language?: string
+          email_notifications?: boolean
+          push_notifications?: boolean
+          weekly_reports?: boolean
+          budget_alerts?: boolean
+          goal_reminders?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      }
       workspaces: {
         Row: {
           id: string
@@ -41,6 +91,8 @@ export interface Database {
           type: 'personal' | 'family' | 'team'
           owner_id: string
           currency: string
+          timezone: string
+          date_format: string
           created_at: string
           updated_at: string
         }
@@ -50,6 +102,8 @@ export interface Database {
           type: 'personal' | 'family' | 'team'
           owner_id: string
           currency?: string
+          timezone?: string
+          date_format?: string
           created_at?: string
           updated_at?: string
         }
@@ -59,6 +113,8 @@ export interface Database {
           type?: 'personal' | 'family' | 'team'
           owner_id?: string
           currency?: string
+          timezone?: string
+          date_format?: string
           created_at?: string
           updated_at?: string
         }

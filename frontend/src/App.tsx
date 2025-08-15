@@ -4,6 +4,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useAuthStore } from '@/stores/authStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { LanguageProvider } from '@/contexts/LanguageContext'
+import { ErrorBoundary, QueryErrorBoundary } from '@/components/error'
+import { NetworkStatusIndicator } from '@/components/ui/network-status-indicator'
+import { errorReportingService } from '@/services/errorReporting'
+import { NetworkError, ValidationError, AuthenticationError, AuthorizationError, OfflineError, TimeoutError } from '@/services/api'
 import '@/lib/i18n'
 
 // Auth Components
@@ -39,14 +43,86 @@ import Help from '@/pages/Help'
 import Privacy from '@/pages/Privacy'
 import Terms from '@/pages/Terms'
 
-// Create a client
+// Enhanced QueryClient with comprehensive error handling
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
+      retry: (failureCount, error) => {
+        // Don't retry on authentication/authorization errors
+        if (error instanceof AuthenticationError || error instanceof AuthorizationError) {
+          return false
+        }
+        
+        // Don't retry on validation errors
+        if (error instanceof ValidationError) {
+          return false
+        }
+        
+        // Retry up to 3 times for network errors, timeouts, and server errors
+        if (error instanceof NetworkError || error instanceof TimeoutError || error instanceof OfflineError) {
+          return failureCount < 3
+        }
+        
+        // Default: retry once for other errors
+        return failureCount < 1
+      },
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff
       refetchOnWindowFocus: false,
+      refetchOnReconnect: true,
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      cacheTime: 10 * 60 * 1000, // 10 minutes
+      onError: (error) => {
+        // Global error handling for queries
+        console.error('Query error:', error)
+        
+        // Report errors to monitoring service
+        if (error instanceof Error) {
+          errorReportingService.reportCustomError(
+            `Query Error: ${error.message}`,
+            'medium',
+            {
+              errorType: error.constructor.name,
+              stack: error.stack
+            }
+          )
+        }
+      }
     },
-  },
+    mutations: {
+      retry: (failureCount, error) => {
+        // Don't retry mutations on client errors (4xx)
+        if (error instanceof ValidationError || 
+            error instanceof AuthenticationError || 
+            error instanceof AuthorizationError) {
+          return false
+        }
+        
+        // Retry mutations only for network/server errors
+        if (error instanceof NetworkError || error instanceof TimeoutError) {
+          return failureCount < 2 // Fewer retries for mutations
+        }
+        
+        return false
+      },
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+      onError: (error) => {
+        // Global error handling for mutations
+        console.error('Mutation error:', error)
+        
+        // Report errors to monitoring service
+        if (error instanceof Error) {
+          errorReportingService.reportCustomError(
+            `Mutation Error: ${error.message}`,
+            'high',
+            {
+              errorType: error.constructor.name,
+              stack: error.stack
+            }
+          )
+        }
+      }
+    }
+  }
 })
 
 function App() {
@@ -61,14 +137,27 @@ function App() {
     if (isInitialized && user) {
       // Only load workspaces if user is authenticated
       loadWorkspaces()
+      // Set user context for error reporting
+      errorReportingService.setUserContext(user.id)
+    } else {
+      // Clear user context on logout
+      errorReportingService.clearUserContext()
     }
   }, [isInitialized, user]) // Remove loadWorkspaces from dependencies
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <LanguageProvider>
-        <Router>
-        <div className="App">
+    <ErrorBoundary
+      onError={(error, errorInfo) => {
+        errorReportingService.reportError(error, errorInfo, 'App', 'critical')
+      }}
+      showDetails={process.env.NODE_ENV === 'development'}
+    >
+      <QueryClientProvider client={queryClient}>
+        <QueryErrorBoundary>
+          <LanguageProvider>
+            <NetworkStatusIndicator />
+            <Router>
+          <div className="App">
           <Routes>
             {/* Public marketing pages */}
             <Route path="/" element={<Landing />} />
@@ -198,9 +287,11 @@ function App() {
             <Route path="*" element={<NotFound />} />
           </Routes>
         </div>
-        </Router>
-      </LanguageProvider>
-    </QueryClientProvider>
+            </Router>
+          </LanguageProvider>
+        </QueryErrorBoundary>
+      </QueryClientProvider>
+    </ErrorBoundary>
   )
 }
 

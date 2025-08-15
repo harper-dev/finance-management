@@ -1,42 +1,77 @@
-export interface SavingsGoal {
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index, ManyToOne, JoinColumn } from 'typeorm'
+import { Workspace } from './Workspace'
+
+@Entity('savings_goals')
+@Index(['workspaceId'])
+@Index(['category'])
+@Index(['createdBy'])
+export class SavingsGoal {
+  @PrimaryGeneratedColumn('uuid')
   id: string
-  workspace_id: string
+
+  @Column({ name: 'workspace_id', type: 'uuid' })
+  workspaceId: string
+
+  @Column({ type: 'varchar', length: 100 })
   name: string
-  target_amount: number
-  current_amount: number
-  target_date?: Date
+
+  @Column({ name: 'target_amount', type: 'decimal', precision: 15, scale: 2 })
+  targetAmount: number
+
+  @Column({ name: 'current_amount', type: 'decimal', precision: 15, scale: 2, default: 0 })
+  currentAmount: number
+
+  @Column({ name: 'target_date', type: 'date', nullable: true })
+  targetDate?: Date
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
   category?: string
+
+  @Column({ type: 'text', nullable: true })
   description?: string
-  is_active: boolean
-  created_by: string
-  created_at: Date
-  updated_at: Date
+
+  @Column({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean
+
+  @Column({ name: 'created_by', type: 'uuid' })
+  createdBy: string
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date
+
+  @ManyToOne(() => Workspace)
+  @JoinColumn({ name: 'workspace_id' })
+  workspace: Workspace
 }
 
-export interface CreateSavingsGoal {
-  workspace_id: string
+export interface CreateSavingsGoalDto {
+  workspaceId: string
   name: string
-  target_amount: number
-  current_amount?: number
-  target_date?: Date
+  targetAmount: number
+  currentAmount?: number
+  targetDate?: Date
   category?: string
   description?: string
-  created_by: string
+  isActive?: boolean
+  createdBy: string
 }
 
-export interface UpdateSavingsGoal {
+export interface UpdateSavingsGoalDto {
   name?: string
-  target_amount?: number
-  current_amount?: number
-  target_date?: Date
+  targetAmount?: number
+  currentAmount?: number
+  targetDate?: Date
   category?: string
   description?: string
-  is_active?: boolean
+  isActive?: boolean
 }
 
-export interface SavingsGoalWithProgress extends SavingsGoal {
-  progress_percentage: number
-  days_remaining?: number
-  monthly_savings_needed: number
-  is_completed: boolean
+export interface SavingsGoalWithProgressDto extends SavingsGoal {
+  progressPercentage: number
+  daysRemaining?: number
+  monthlySavingsNeeded: number
+  isCompleted: boolean
 }

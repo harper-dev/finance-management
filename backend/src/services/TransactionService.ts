@@ -1,247 +1,239 @@
-import { SupabaseClient } from '@supabase/supabase-js'
-import { Database } from '../types/database'
-import { Transaction, CreateTransaction, UpdateTransaction, TransactionFilter } from '../entities'
-import { TransactionRepository, AccountRepository, WorkspaceRepository } from '../repositories'
-import { PaginationOptions, PaginatedResult } from '../repositories/base/BaseRepository'
+import { TransactionRepository } from '../repositories/TransactionRepository'
+import { BaseService } from './base/BaseService'
+import { Transaction, CreateTransactionDto, UpdateTransactionDto, TransactionFilterDto } from '../entities'
+import { ValidationUtils } from '../utils/validation'
 
-export class TransactionService {
-  private transactionRepo: TransactionRepository
-  private accountRepo: AccountRepository
-  private workspaceRepo: WorkspaceRepository
+export class TransactionService extends BaseService<Transaction> {
+  private transactionRepository: TransactionRepository
 
-  constructor(supabase: SupabaseClient<Database>) {
-    this.transactionRepo = new TransactionRepository(supabase)
-    this.accountRepo = new AccountRepository(supabase)
-    this.workspaceRepo = new WorkspaceRepository(supabase)
+  constructor() {
+    const repository = new TransactionRepository()
+    super(repository)
+    this.transactionRepository = repository
   }
 
-  async getTransactions(
+  async createTransaction(transactionData: CreateTransactionDto): Promise<Transaction> {
+    // Validate required fields
+    this.validateRequiredFields(transactionData, [
+      'workspaceId', 'accountId', 'type', 'amount', 'currency', 'transactionDate', 'createdBy'
+    ])
+    
+    // Validate amount
+    if (!ValidationUtils.isValidAmount(transactionData.amount)) {
+      throw new Error('Invalid transaction amount')
+    }
+    
+    // Validate transaction type
+    ValidationUtils.validateEnum(transactionData.type, 'type', ['income', 'expense', 'transfer'])
+    
+    // Validate currency
+    if (!ValidationUtils.isValidCurrency(transactionData.currency)) {
+      throw new Error('Invalid currency code')
+    }
+    
+    // Validate transaction date
+    if (!ValidationUtils.isValidDate(transactionData.transactionDate)) {
+      throw new Error('Invalid transaction date')
+    }
+    
+    // Validate category length if provided
+    if (transactionData.category) {
+      ValidationUtils.validateStringLength(transactionData.category, 'category', 1, 100)
+    }
+    
+    // Validate description length if provided
+    if (transactionData.description) {
+      ValidationUtils.validateStringLength(transactionData.description, 'description', 1, 1000)
+    }
+
+    return this.transactionRepository.createTransaction(transactionData)
+  }
+
+  async updateTransaction(id: string, updates: UpdateTransactionDto): Promise<Transaction | null> {
+    this.validateId(id)
+
+    if (updates.amount !== undefined && !ValidationUtils.isValidAmount(updates.amount)) {
+      throw new Error('Invalid transaction amount')
+    }
+
+    if (updates.type) {
+      ValidationUtils.validateEnum(updates.type, 'type', ['income', 'expense', 'transfer'])
+    }
+
+    if (updates.currency && !ValidationUtils.isValidCurrency(updates.currency)) {
+      throw new Error('Invalid currency code')
+    }
+
+    if (updates.transactionDate && !ValidationUtils.isValidDate(updates.transactionDate)) {
+      throw new Error('Invalid transaction date')
+    }
+
+    if (updates.category) {
+      ValidationUtils.validateStringLength(updates.category, 'category', 1, 100)
+    }
+
+    if (updates.description) {
+      ValidationUtils.validateStringLength(updates.description, 'description', 1, 1000)
+    }
+
+    return this.transactionRepository.update(id, updates)
+  }
+
+  async getTransactionsByFilter(
+    filter: TransactionFilterDto,
+    options?: any
+  ): Promise<Transaction[]> {
+    return this.transactionRepository.findByFilter(filter, options)
+  }
+
+  async getTransactionsByWorkspace(
     workspaceId: string,
-    userId: string,
-    filters?: TransactionFilter,
-    pagination?: PaginationOptions
-  ): Promise<PaginatedResult<Transaction> | Transaction[]> {
-    await this.checkWorkspaceAccess(workspaceId, userId)
-
-    const filter = {
-      workspace_id: workspaceId,
-      ...filters
+    options?: any
+  ): Promise<Transaction[]> {
+    if (!ValidationUtils.isValidUUID(workspaceId)) {
+      throw new Error('Invalid workspace ID')
     }
 
-    return await this.transactionRepo.findMany(filter, pagination)
+    return this.transactionRepository.findByWorkspace(workspaceId, options)
   }
 
-  async getTransactionById(transactionId: string, userId: string): Promise<Transaction> {
-    const transaction = await this.transactionRepo.findById(transactionId)
-    if (!transaction) {
-      throw new Error('Transaction not found')
-    }
-
-    await this.checkWorkspaceAccess(transaction.workspace_id, userId)
-    return transaction
+  async getTransactionsByAccount(
+    accountId: string,
+    options?: any
+  ): Promise<Transaction[]> {
+    this.validateId(accountId)
+    return this.transactionRepository.findByAccount(accountId, options)
   }
 
-  async createTransaction(transactionData: CreateTransaction, userId: string): Promise<Transaction> {
-    await this.checkWorkspaceAccess(transactionData.workspace_id, userId)
-
-    // Verify account exists and belongs to workspace
-    const account = await this.accountRepo.findById(transactionData.account_id)
-    if (!account) {
-      throw new Error('Account not found')
-    }
-    if (account.workspace_id !== transactionData.workspace_id) {
-      throw new Error('Account does not belong to this workspace')
+  async getCurrentMonthTransactions(workspaceId: string): Promise<Transaction[]> {
+    if (!ValidationUtils.isValidUUID(workspaceId)) {
+      throw new Error('Invalid workspace ID')
     }
 
-    // Create transaction
-    const transaction = await this.transactionRepo.create({
-      ...transactionData,
-      created_by: userId
+    return this.transactionRepository.getCurrentMonthTransactions(workspaceId)
+  }
+
+  async getTransactionsByDateRange(
+    workspaceId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<Transaction[]> {
+    if (!ValidationUtils.isValidUUID(workspaceId)) {
+      throw new Error('Invalid workspace ID')
+    }
+
+    if (!ValidationUtils.isValidDate(startDate) || !ValidationUtils.isValidDate(endDate)) {
+      throw new Error('Invalid date range')
+    }
+
+    if (startDate > endDate) {
+      throw new Error('Start date must be before end date')
+    }
+
+    return this.transactionRepository.getTransactionsByDateRange(workspaceId, startDate, endDate)
+  }
+
+  async getCategorySummary(
+    workspaceId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<Array<{ category: string; total: number; count: number }>> {
+    if (!ValidationUtils.isValidUUID(workspaceId)) {
+      throw new Error('Invalid workspace ID')
+    }
+
+    if (!ValidationUtils.isValidDate(startDate) || !ValidationUtils.isValidDate(endDate)) {
+      throw new Error('Invalid date range')
+    }
+
+    return this.transactionRepository.getCategorySummary(workspaceId, startDate, endDate)
+  }
+
+  async getMonthlySummary(
+    workspaceId: string,
+    year: number
+  ): Promise<Array<{ month: number; income: number; expenses: number; net: number }>> {
+    if (!ValidationUtils.isValidUUID(workspaceId)) {
+      throw new Error('Invalid workspace ID')
+    }
+
+    if (year < 1900 || year > 2100) {
+      throw new Error('Invalid year')
+    }
+
+    return this.transactionRepository.getMonthlySummary(workspaceId, year)
+  }
+
+  async deleteTransaction(id: string): Promise<boolean> {
+    this.validateId(id)
+    return this.transactionRepository.deleteTransaction(id)
+  }
+
+  async getTransactionSummary(workspaceId: string): Promise<{
+    totalTransactions: number
+    totalIncome: number
+    totalExpenses: number
+    netChange: number
+    averageTransactionAmount: number
+    mostActiveCategory: string
+    mostActiveMonth: string
+  }> {
+    if (!ValidationUtils.isValidUUID(workspaceId)) {
+      throw new Error('Invalid workspace ID')
+    }
+
+    const currentYear = new Date().getFullYear()
+    const [transactions, monthlySummary] = await Promise.all([
+      this.transactionRepository.findByWorkspace(workspaceId),
+      this.transactionRepository.getMonthlySummary(workspaceId, currentYear)
+    ])
+
+    const totalTransactions = transactions.length
+    const totalIncome = transactions
+      .filter(t => t.type === 'income')
+      .reduce((sum, t) => sum + Number(t.amount), 0)
+    
+    const totalExpenses = transactions
+      .filter(t => t.type === 'expense')
+      .reduce((sum, t) => sum + Number(t.amount), 0)
+    
+    const netChange = totalIncome - totalExpenses
+    const averageTransactionAmount = totalTransactions > 0 
+      ? (totalIncome + totalExpenses) / totalTransactions 
+      : 0
+
+    // Find most active category
+    const categoryCount = new Map<string, number>()
+    transactions.forEach(t => {
+      if (t.category) {
+        categoryCount.set(t.category, (categoryCount.get(t.category) || 0) + 1)
+      }
     })
+    const mostActiveCategory = Array.from(categoryCount.entries())
+      .sort(([,a], [,b]) => b - a)[0]?.[0] || 'Other'
 
-    // Update account balance
-    await this.updateAccountBalance(transactionData.account_id, transactionData.amount, transactionData.type)
+    // Find most active month
+    const monthCount = new Map<number, number>()
+    transactions.forEach(t => {
+      const month = new Date(t.transactionDate).getMonth()
+      monthCount.set(month, (monthCount.get(month) || 0) + 1)
+    })
+    const mostActiveMonth = Array.from(monthCount.entries())
+      .sort(([,a], [,b]) => b - a)[0]?.[0] || 0
 
-    return transaction
-  }
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ]
 
-  async updateTransaction(transactionId: string, updates: UpdateTransaction, userId: string): Promise<Transaction> {
-    const existingTransaction = await this.transactionRepo.findById(transactionId)
-    if (!existingTransaction) {
-      throw new Error('Transaction not found')
-    }
-
-    await this.checkWorkspaceAccess(existingTransaction.workspace_id, userId)
-
-    // If account is changing, verify new account
-    if (updates.account_id && updates.account_id !== existingTransaction.account_id) {
-      const newAccount = await this.accountRepo.findById(updates.account_id)
-      if (!newAccount) {
-        throw new Error('New account not found')
-      }
-      if (newAccount.workspace_id !== existingTransaction.workspace_id) {
-        throw new Error('New account does not belong to this workspace')
-      }
-
-      // Reverse old transaction effect
-      await this.reverseAccountBalance(
-        existingTransaction.account_id,
-        existingTransaction.amount,
-        existingTransaction.type
-      )
-
-      // Apply new transaction effect
-      const newAmount = updates.amount ?? existingTransaction.amount
-      const newType = updates.type ?? existingTransaction.type
-      await this.updateAccountBalance(updates.account_id, newAmount, newType)
-    } else if (updates.amount !== undefined || updates.type !== undefined) {
-      // If amount or type changed but account is same
-      const oldAccount = existingTransaction.account_id
-
-      // Reverse old transaction
-      await this.reverseAccountBalance(
-        existingTransaction.account_id,
-        existingTransaction.amount,
-        existingTransaction.type
-      )
-
-      // Apply new transaction
-      const newAmount = updates.amount ?? existingTransaction.amount
-      const newType = updates.type ?? existingTransaction.type
-      await this.updateAccountBalance(oldAccount, newAmount, newType)
-    }
-
-    return await this.transactionRepo.update(transactionId, updates)
-  }
-
-  async deleteTransaction(transactionId: string, userId: string): Promise<void> {
-    const transaction = await this.transactionRepo.findById(transactionId)
-    if (!transaction) {
-      throw new Error('Transaction not found')
-    }
-
-    await this.checkWorkspaceAccess(transaction.workspace_id, userId)
-
-    // Reverse the balance effect
-    await this.reverseAccountBalance(transaction.account_id, transaction.amount, transaction.type)
-
-    // Delete the transaction
-    await this.transactionRepo.delete(transactionId)
-  }
-
-  async createBulkTransactions(transactions: CreateTransaction[], userId: string): Promise<Transaction[]> {
-    if (transactions.length === 0) {
-      return []
-    }
-
-    // Verify all transactions belong to workspaces user has access to
-    const workspaceIds = [...new Set(transactions.map(t => t.workspace_id))]
-    for (const workspaceId of workspaceIds) {
-      await this.checkWorkspaceAccess(workspaceId, userId)
-    }
-
-    // Verify all accounts exist and belong to their respective workspaces
-    const accountIds = [...new Set(transactions.map(t => t.account_id))]
-    const accounts = await Promise.all(
-      accountIds.map(id => this.accountRepo.findById(id))
-    )
-
-    for (let i = 0; i < transactions.length; i++) {
-      const transaction = transactions[i]
-      const account = accounts.find(a => a?.id === transaction.account_id)
-      
-      if (!account) {
-        throw new Error(`Account not found for transaction ${i + 1}`)
-      }
-      if (account.workspace_id !== transaction.workspace_id) {
-        throw new Error(`Account does not belong to workspace for transaction ${i + 1}`)
-      }
-    }
-
-    // Add created_by to all transactions
-    const transactionsWithCreator = transactions.map(t => ({
-      ...t,
-      created_by: userId
-    }))
-
-    return await this.transactionRepo.createMany(transactionsWithCreator)
-  }
-
-  async getSpendingByCategory(
-    workspaceId: string,
-    userId: string,
-    startDate?: Date,
-    endDate?: Date
-  ): Promise<Array<{category: string, amount: number, count: number, percentage: number}>> {
-    await this.checkWorkspaceAccess(workspaceId, userId)
-    
-    const spending = await this.transactionRepo.getSpendingByCategory(workspaceId, startDate, endDate)
-    const totalAmount = spending.reduce((sum, item) => sum + item.amount, 0)
-
-    return spending.map(item => ({
-      ...item,
-      percentage: totalAmount > 0 ? (item.amount / totalAmount) * 100 : 0
-    }))
-  }
-
-  async getIncomeByCategory(
-    workspaceId: string,
-    userId: string,
-    startDate?: Date,
-    endDate?: Date
-  ): Promise<Array<{category: string, amount: number, count: number, percentage: number}>> {
-    await this.checkWorkspaceAccess(workspaceId, userId)
-    
-    const income = await this.transactionRepo.getIncomeByCategory(workspaceId, startDate, endDate)
-    const totalAmount = income.reduce((sum, item) => sum + item.amount, 0)
-
-    return income.map(item => ({
-      ...item,
-      percentage: totalAmount > 0 ? (item.amount / totalAmount) * 100 : 0
-    }))
-  }
-
-  private async updateAccountBalance(accountId: string, amount: number, type: string): Promise<void> {
-    const account = await this.accountRepo.findById(accountId)
-    if (!account) return
-
-    let newBalance = account.balance
-
-    switch (type) {
-      case 'income':
-        newBalance += amount
-        break
-      case 'expense':
-        newBalance -= amount
-        break
-      // For transfers, we handle them at the service level with two transactions
-    }
-
-    await this.accountRepo.updateBalance(accountId, newBalance)
-  }
-
-  private async reverseAccountBalance(accountId: string, amount: number, type: string): Promise<void> {
-    const account = await this.accountRepo.findById(accountId)
-    if (!account) return
-
-    let newBalance = account.balance
-
-    switch (type) {
-      case 'income':
-        newBalance -= amount
-        break
-      case 'expense':
-        newBalance += amount
-        break
-    }
-
-    await this.accountRepo.updateBalance(accountId, newBalance)
-  }
-
-  private async checkWorkspaceAccess(workspaceId: string, userId: string): Promise<void> {
-    const isMember = await this.workspaceRepo.isMember(workspaceId, userId)
-    if (!isMember) {
-      throw new Error('Access denied: You are not a member of this workspace')
+    return {
+      totalTransactions,
+      totalIncome,
+      totalExpenses,
+      netChange,
+      averageTransactionAmount,
+      mostActiveCategory,
+      mostActiveMonth: monthNames[mostActiveMonth]
     }
   }
 }

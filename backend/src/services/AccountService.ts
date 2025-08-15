@@ -1,104 +1,180 @@
-import { SupabaseClient } from '@supabase/supabase-js'
-import { Database } from '../types/database'
-import { Account, CreateAccount, UpdateAccount } from '../entities'
-import { AccountRepository, WorkspaceRepository } from '../repositories'
-import { PaginationOptions, PaginatedResult } from '../repositories/base/BaseRepository'
+import { AccountRepository } from '../repositories/AccountRepository'
+import { BaseService } from './base/BaseService'
+import { Account, CreateAccountDto, UpdateAccountDto } from '../entities'
+import { ValidationUtils } from '../utils/validation'
 
-export class AccountService {
-  private accountRepo: AccountRepository
-  private workspaceRepo: WorkspaceRepository
+export class AccountService extends BaseService<Account> {
+  private accountRepository: AccountRepository
 
-  constructor(supabase: SupabaseClient<Database>) {
-    this.accountRepo = new AccountRepository(supabase)
-    this.workspaceRepo = new WorkspaceRepository(supabase)
+  constructor() {
+    const repository = new AccountRepository()
+    super(repository)
+    this.accountRepository = repository
   }
 
-  async getAccounts(
+  async createAccount(accountData: CreateAccountDto): Promise<Account> {
+    // Validate required fields
+    this.validateRequiredFields(accountData, ['workspaceId', 'name', 'type', 'createdBy'])
+    
+    // Validate name length
+    ValidationUtils.validateStringLength(accountData.name, 'name', 1, 100)
+    
+    // Validate account type
+    ValidationUtils.validateEnum(accountData.type, 'type', ['cash', 'bank', 'investment', 'asset', 'debt'])
+    
+    // Validate currency
+    if (accountData.currency && !ValidationUtils.isValidCurrency(accountData.currency)) {
+      throw new Error('Invalid currency code')
+    }
+    
+    // Validate balance
+    if (accountData.balance !== undefined && !ValidationUtils.isValidAmount(accountData.balance)) {
+      throw new Error('Invalid balance amount')
+    }
+
+    return this.accountRepository.create(accountData)
+  }
+
+  async updateAccount(id: string, updates: UpdateAccountDto): Promise<Account | null> {
+    this.validateId(id)
+
+    if (updates.name) {
+      ValidationUtils.validateStringLength(updates.name, 'name', 1, 100)
+    }
+
+    if (updates.type) {
+      ValidationUtils.validateEnum(updates.type, 'type', ['cash', 'bank', 'investment', 'asset', 'debt'])
+    }
+
+    if (updates.currency && !ValidationUtils.isValidCurrency(updates.currency)) {
+      throw new Error('Invalid currency code')
+    }
+
+    if (updates.balance !== undefined && !ValidationUtils.isValidAmount(updates.balance)) {
+      throw new Error('Invalid balance amount')
+    }
+
+    return this.accountRepository.update(id, updates)
+  }
+
+  async getAccountsByWorkspace(
     workspaceId: string,
-    userId: string,
-    filters?: { is_active?: boolean; type?: string },
-    pagination?: PaginationOptions
-  ): Promise<PaginatedResult<Account> | Account[]> {
-    await this.checkWorkspaceAccess(workspaceId, userId)
-
-    const filter = {
-      workspace_id: workspaceId,
-      ...filters
+    isActive?: boolean
+  ): Promise<Account[]> {
+    if (!ValidationUtils.isValidUUID(workspaceId)) {
+      throw new Error('Invalid workspace ID')
     }
 
-    return await this.accountRepo.findMany(filter, pagination)
-  }
-
-  async getAccountById(accountId: string, userId: string): Promise<Account> {
-    const account = await this.accountRepo.findById(accountId)
-    if (!account) {
-      throw new Error('Account not found')
+    const filter: any = { workspaceId }
+    if (isActive !== undefined) {
+      filter.isActive = isActive
     }
 
-    await this.checkWorkspaceAccess(account.workspace_id, userId)
-    return account
+    return this.accountRepository.findByFilter(filter)
   }
 
-  async createAccount(accountData: CreateAccount, userId: string): Promise<Account> {
-    await this.checkWorkspaceAccess(accountData.workspace_id, userId)
+  async getActiveAccounts(workspaceId: string): Promise<Account[]> {
+    if (!ValidationUtils.isValidUUID(workspaceId)) {
+      throw new Error('Invalid workspace ID')
+    }
 
-    return await this.accountRepo.create({
-      ...accountData,
-      created_by: userId
+    return this.accountRepository.findActiveAccounts(workspaceId)
+  }
+
+  async getAccountsByType(workspaceId: string, type: string): Promise<Account[]> {
+    if (!ValidationUtils.isValidUUID(workspaceId)) {
+      throw new Error('Invalid workspace ID')
+    }
+
+    ValidationUtils.validateEnum(type, 'type', ['cash', 'bank', 'investment', 'asset', 'debt'])
+
+    return this.accountRepository.findByFilter({ workspaceId, type })
+  }
+
+  async getAccountWithTransactions(accountId: string): Promise<{
+    account: Account
+    transactions: any[]
+  } | null> {
+    this.validateId(accountId)
+    return this.accountRepository.getAccountWithTransactions(accountId)
+  }
+
+  async getAccountSummary(accountId: string): Promise<{
+    account: Account
+    totalIncome: number
+    totalExpenses: number
+    netChange: number
+    transactionCount: number
+  } | null> {
+    this.validateId(accountId)
+    return this.accountRepository.getAccountSummary(accountId)
+  }
+
+  async updateBalance(accountId: string, newBalance: number): Promise<Account | null> {
+    this.validateId(accountId)
+    
+    if (!ValidationUtils.isValidAmount(newBalance)) {
+      throw new Error('Invalid balance amount')
+    }
+
+    return this.accountRepository.updateBalance(accountId, newBalance)
+  }
+
+  async deactivateAccount(accountId: string): Promise<Account | null> {
+    this.validateId(accountId)
+    return this.accountRepository.update(accountId, { isActive: false })
+  }
+
+  async reactivateAccount(accountId: string): Promise<Account | null> {
+    this.validateId(accountId)
+    return this.accountRepository.update(accountId, { isActive: true })
+  }
+
+  async getAccountsSummary(workspaceId: string): Promise<{
+    totalAccounts: number
+    activeAccounts: number
+    totalBalance: number
+    accountsByType: Record<string, { count: number; totalBalance: number }>
+    currencyBreakdown: Record<string, { count: number; totalBalance: number }>
+  }> {
+    if (!ValidationUtils.isValidUUID(workspaceId)) {
+      throw new Error('Invalid workspace ID')
+    }
+
+    const accounts = await this.accountRepository.findByFilter({ workspaceId })
+    
+    const totalAccounts = accounts.length
+    const activeAccounts = accounts.filter(a => a.isActive).length
+    const totalBalance = accounts.reduce((sum, acc) => sum + Number(acc.balance), 0)
+
+    // Group by type
+    const accountsByType: Record<string, { count: number; totalBalance: number }> = {}
+    accounts.forEach(account => {
+      const type = account.type
+      if (!accountsByType[type]) {
+        accountsByType[type] = { count: 0, totalBalance: 0 }
+      }
+      accountsByType[type].count++
+      accountsByType[type].totalBalance += Number(account.balance)
     })
-  }
 
-  async updateAccount(accountId: string, updates: UpdateAccount, userId: string): Promise<Account> {
-    const account = await this.accountRepo.findById(accountId)
-    if (!account) {
-      throw new Error('Account not found')
-    }
+    // Group by currency
+    const currencyBreakdown: Record<string, { count: number; totalBalance: number }> = {}
+    accounts.forEach(account => {
+      const currency = account.currency
+      if (!currencyBreakdown[currency]) {
+        currencyBreakdown[currency] = { count: 0, totalBalance: 0 }
+      }
+      currencyBreakdown[currency].count++
+      currencyBreakdown[currency].totalBalance += Number(account.balance)
+    })
 
-    await this.checkWorkspaceAccess(account.workspace_id, userId)
-    return await this.accountRepo.update(accountId, updates)
-  }
-
-  async deleteAccount(accountId: string, userId: string): Promise<Account> {
-    const account = await this.accountRepo.findById(accountId)
-    if (!account) {
-      throw new Error('Account not found')
-    }
-
-    await this.checkWorkspaceAccess(account.workspace_id, userId)
-    
-    // Soft delete to preserve transaction history
-    return await this.accountRepo.softDelete(accountId)
-  }
-
-  async getBalanceHistory(accountId: string, userId: string, days: number = 30): Promise<Array<{date: string, balance: number}>> {
-    const account = await this.accountRepo.findById(accountId)
-    if (!account) {
-      throw new Error('Account not found')
-    }
-
-    await this.checkWorkspaceAccess(account.workspace_id, userId)
-    return await this.accountRepo.getBalanceHistory(accountId, days)
-  }
-
-  async recalculateAccountBalance(accountId: string, userId: string): Promise<number> {
-    const account = await this.accountRepo.findById(accountId)
-    if (!account) {
-      throw new Error('Account not found')
-    }
-
-    await this.checkWorkspaceAccess(account.workspace_id, userId)
-    const newBalance = await this.accountRepo.recalculateBalance(accountId)
-    
-    // Update the account with the recalculated balance
-    await this.accountRepo.updateBalance(accountId, newBalance)
-    
-    return newBalance
-  }
-
-  private async checkWorkspaceAccess(workspaceId: string, userId: string): Promise<void> {
-    const isMember = await this.workspaceRepo.isMember(workspaceId, userId)
-    if (!isMember) {
-      throw new Error('Access denied: You are not a member of this workspace')
+    return {
+      totalAccounts,
+      activeAccounts,
+      totalBalance,
+      accountsByType,
+      currencyBreakdown
     }
   }
 }

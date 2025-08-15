@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../ui/button';
+import { LoadingButton } from '../ui/loading-button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -13,6 +14,9 @@ import { Loader2, AlertCircle, Calendar } from 'lucide-react';
 import { apiClient } from '../../services/api';
 import { Budget } from '../../types/api';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { FormWrapper } from './FormWrapper';
+import { useLoadingState } from '../../hooks/useLoadingState';
+import { useRetry } from '../../hooks/useRetry';
 
 const budgetFormSchema = z.object({
   name: z.string().min(1, 'Budget name is required').max(100, 'Name too long'),
@@ -56,12 +60,21 @@ export function BudgetForm({ budget, onSuccess, onCancel }: BudgetFormProps) {
   const queryClient = useQueryClient();
   const { currentWorkspace } = useWorkspaceStore();
   const isEditing = Boolean(budget);
+  
+  // Enhanced loading state management
+  const { isLoading, isTimedOut, withLoading, reset } = useLoadingState({
+    timeout: 30000,
+    onTimeout: () => {
+      console.warn('Budget form submission timed out')
+    }
+  });
 
   const {
     register,
     handleSubmit,
     setValue,
     watch,
+    getValues,
     formState: { errors, isSubmitting }
   } = useForm<BudgetFormData>({
     resolver: zodResolver(budgetFormSchema),
@@ -120,25 +133,27 @@ export function BudgetForm({ budget, onSuccess, onCancel }: BudgetFormProps) {
         throw new Error('No workspace selected');
       }
 
-      if (isEditing) {
-        return apiClient.updateBudget(budget!.id, {
-          name: data.name,
-          category: data.category,
-          amount: data.amount,
-          period: data.period,
-          start_date: data.start_date,
-          end_date: data.end_date || undefined,
-        });
-      } else {
-        return apiClient.createBudget(currentWorkspace.id, {
-          name: data.name,
-          category: data.category,
-          amount: data.amount,
-          period: data.period,
-          start_date: data.start_date,
-          end_date: data.end_date || undefined,
-        });
-      }
+      return withLoading(async () => {
+        if (isEditing) {
+          return apiClient.updateBudget(budget!.id, {
+            name: data.name,
+            category: data.category,
+            amount: data.amount,
+            period: data.period,
+            start_date: data.start_date,
+            end_date: data.end_date || undefined,
+          });
+        } else {
+          return apiClient.createBudget(currentWorkspace.id, {
+            name: data.name,
+            category: data.category,
+            amount: data.amount,
+            period: data.period,
+            start_date: data.start_date,
+            end_date: data.end_date || undefined,
+          });
+        }
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['budgets'] });
@@ -146,36 +161,47 @@ export function BudgetForm({ budget, onSuccess, onCancel }: BudgetFormProps) {
     },
   });
 
-  const onSubmit = handleSubmit((data) => {
-    mutation.mutate(data);
+  // Retry functionality
+  const { execute: retrySubmit, isRetrying, retryCount } = useRetry(
+    () => mutation.mutateAsync(getValues()),
+    {
+      maxRetries: 3,
+      retryDelay: 1000,
+      onRetry: (attempt) => {
+        console.log(`Retrying budget submission, attempt ${attempt}`)
+      },
+      onMaxRetriesReached: () => {
+        console.error('Max retries reached for budget submission')
+      }
+    }
+  );
+
+  const onSubmit = handleSubmit(async (data) => {
+    try {
+      await mutation.mutateAsync(data);
+    } catch (error) {
+      console.error('Budget submission failed:', error);
+    }
   });
 
   return (
-    <Card className="w-full max-w-2xl mx-auto">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Calendar className="h-5 w-5" />
-          {isEditing ? 'Edit Budget' : 'Create New Budget'}
-        </CardTitle>
-        <CardDescription>
-          {isEditing 
-            ? 'Update your budget details' 
-            : 'Set up a budget to track your spending in specific categories'
-          }
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent className="space-y-6">
-        {mutation.error && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              {mutation.error instanceof Error 
-                ? mutation.error.message 
-                : 'Failed to save budget. Please try again.'}
-            </AlertDescription>
-          </Alert>
-        )}
+    <FormWrapper
+      title={isEditing ? 'Edit Budget' : 'Create New Budget'}
+      description={
+        isEditing 
+          ? 'Update your budget details' 
+          : 'Set up a budget to track your spending in specific categories'
+      }
+      isLoading={isLoading}
+      loadingMessage={isEditing ? 'Updating budget...' : 'Creating budget...'}
+      isSubmitting={mutation.isPending}
+      submitError={(mutation.error as any)?.message || (isTimedOut ? 'Request timed out. Please try again.' : null)}
+      submitSuccess={mutation.isSuccess}
+      successMessage={isEditing ? 'Budget updated successfully!' : 'Budget created successfully!'}
+      onRetry={retrySubmit}
+      onCancel={onCancel}
+    >
+      <div className="space-y-6">
 
         <form onSubmit={onSubmit} className="space-y-6">
           {/* Budget Name */}
@@ -185,7 +211,6 @@ export function BudgetForm({ budget, onSuccess, onCancel }: BudgetFormProps) {
               id="name"
               placeholder="e.g., Monthly Food Budget"
               {...register('name')}
-              error={errors.name?.message}
             />
           </div>
 
@@ -221,7 +246,6 @@ export function BudgetForm({ budget, onSuccess, onCancel }: BudgetFormProps) {
                 min="0"
                 placeholder="0.00"
                 {...register('amount')}
-                error={errors.amount?.message}
               />
             </div>
           </div>
@@ -257,7 +281,6 @@ export function BudgetForm({ budget, onSuccess, onCancel }: BudgetFormProps) {
                 id="start_date"
                 type="date"
                 {...register('start_date')}
-                error={errors.start_date?.message}
               />
             </div>
 
@@ -267,7 +290,6 @@ export function BudgetForm({ budget, onSuccess, onCancel }: BudgetFormProps) {
                 id="end_date"
                 type="date"
                 {...register('end_date')}
-                error={errors.end_date?.message}
                 disabled // Auto-calculated based on period
               />
               <p className="text-sm text-gray-500">
@@ -278,28 +300,36 @@ export function BudgetForm({ budget, onSuccess, onCancel }: BudgetFormProps) {
 
           {/* Form Actions */}
           <div className="flex gap-3 pt-6">
-            <Button
+            <LoadingButton
               type="submit"
               className="flex-1"
-              disabled={isSubmitting}
+              loading={mutation.isPending || isRetrying}
+              loadingText={
+                isRetrying 
+                  ? `Retrying... (${retryCount}/3)` 
+                  : isEditing ? 'Updating...' : 'Creating...'
+              }
+              success={mutation.isSuccess}
+              successText={isEditing ? 'Updated!' : 'Created!'}
+              error={!!mutation.error}
+              errorText="Failed"
             >
-              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {isEditing ? 'Update Budget' : 'Create Budget'}
-            </Button>
+            </LoadingButton>
             
             {onCancel && (
               <Button
                 type="button"
                 variant="outline"
                 onClick={onCancel}
-                disabled={isSubmitting}
+                disabled={mutation.isPending || isRetrying}
               >
                 Cancel
               </Button>
             )}
           </div>
         </form>
-      </CardContent>
-    </Card>
+      </div>
+    </FormWrapper>
   );
 }

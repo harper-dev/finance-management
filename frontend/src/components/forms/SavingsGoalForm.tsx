@@ -166,7 +166,6 @@ export function SavingsGoalForm({ goal, onSuccess, onCancel }: SavingsGoalFormPr
               id="name"
               placeholder="e.g., Emergency Fund, Dream Vacation"
               {...register('name')}
-              error={errors.name?.message}
             />
           </div>
 

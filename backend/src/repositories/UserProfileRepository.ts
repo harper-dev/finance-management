@@ -1,77 +1,77 @@
-import { SupabaseClient } from '@supabase/supabase-js'
-import { Database } from '../types/database'
-import { UserProfile, CreateUserProfile, UpdateUserProfile } from '../entities'
+import { Repository, FindOptionsWhere, FindManyOptions } from 'typeorm'
+import { UserProfile } from '../entities/UserProfile'
 import { BaseRepository } from './base/BaseRepository'
+import { AppDataSource } from '../config/database'
+import { CreateUserProfileDto, UpdateUserProfileDto } from '../entities'
 
-export class UserProfileRepository extends BaseRepository {
-  constructor(supabase: SupabaseClient<Database>) {
-    super(supabase)
+export interface UserProfileFilter {
+  userId?: string
+  language?: string
+  currency?: string
+}
+
+export class UserProfileRepository extends BaseRepository<UserProfile> {
+  constructor() {
+    super(UserProfile)
+  }
+
+  async findByFilter(
+    filter: UserProfileFilter,
+    options?: FindManyOptions<UserProfile>
+  ): Promise<UserProfile[]> {
+    const where: FindOptionsWhere<UserProfile> = {}
+
+    if (filter.userId) {
+      where.userId = filter.userId
+    }
+
+    if (filter.language) {
+      where.language = filter.language
+    }
+
+    if (filter.currency) {
+      where.preferredCurrency = filter.currency
+    }
+
+    return this.repository.find({
+      where,
+      order: { createdAt: 'DESC' },
+      ...options
+    })
   }
 
   async findByUserId(userId: string): Promise<UserProfile | null> {
-    const { data, error } = await this.supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('user_id', userId)
-      .single()
-
-    if (error && error.code !== 'PGRST116') {
-      throw new Error(error.message)
-    }
-
-    return data ? this.mapToEntity(data) : null
+    return this.repository.findOne({
+      where: { userId }
+    })
   }
 
-  async create(profile: CreateUserProfile): Promise<UserProfile> {
-    const { data, error } = await this.supabase
-      .from('user_profiles')
-      .insert([profile])
-      .select()
-      .single()
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return this.mapToEntity(data)
+  async createProfile(profileData: CreateUserProfileDto): Promise<UserProfile> {
+    return this.create(profileData)
   }
 
-  async update(userId: string, updates: UpdateUserProfile): Promise<UserProfile> {
-    const { data, error } = await this.supabase
-      .from('user_profiles')
-      .update(updates)
-      .eq('user_id', userId)
-      .select()
-      .single()
+  async updateProfile(
+    userId: string,
+    updates: UpdateUserProfileDto
+  ): Promise<UserProfile | null> {
+    const profile = await this.findByUserId(userId)
+    if (!profile) return null
 
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    return this.mapToEntity(data)
+    return this.update(profile.id, updates)
   }
 
-  async delete(userId: string): Promise<void> {
-    const { error } = await this.supabase
-      .from('user_profiles')
-      .delete()
-      .eq('user_id', userId)
+  async deleteProfile(userId: string): Promise<boolean> {
+    const profile = await this.findByUserId(userId)
+    if (!profile) return false
 
-    if (error) {
-      throw new Error(error.message)
-    }
+    return this.delete(profile.id)
   }
 
-  private mapToEntity(data: any): UserProfile {
-    return {
-      id: data.id,
-      user_id: data.user_id,
-      display_name: data.display_name,
-      preferred_currency: data.preferred_currency,
-      timezone: data.timezone,
-      language: data.language,
-      created_at: new Date(data.created_at),
-      updated_at: new Date(data.updated_at)
-    }
+  async getProfilesByLanguage(language: string): Promise<UserProfile[]> {
+    return this.findByFilter({ language })
+  }
+
+  async getProfilesByCurrency(currency: string): Promise<UserProfile[]> {
+    return this.findByFilter({ currency })
   }
 }

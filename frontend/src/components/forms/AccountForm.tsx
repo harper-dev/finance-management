@@ -1,10 +1,7 @@
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
+import { useCallback, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Textarea } from '../ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -13,16 +10,17 @@ import { Loader2, AlertCircle } from 'lucide-react';
 import { api } from '../../services/api';
 import { Account, AccountType } from '../../types/api';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { useFormWithValidation, useFormSubmission, useDuplicatePreventionValidation } from '../../hooks/useFormWithValidation';
+import { formSchemas } from '../../utils/validation';
+import { FormField, FormError, FormSection, CurrencyInput } from '../ui/form-error';
 
-const accountFormSchema = z.object({
-  name: z.string().min(1, 'Account name is required').max(100, 'Name too long'),
-  type: z.enum(['cash', 'bank', 'investment', 'asset', 'debt'] as const),
-  currency: z.string().min(3, 'Currency code required').max(3, 'Invalid currency'),
-  initial_balance: z.coerce.number().default(0),
-  description: z.string().optional(),
-});
-
-type AccountFormData = z.infer<typeof accountFormSchema>;
+type AccountFormData = {
+  name: string;
+  type: AccountType;
+  currency: string;
+  initial_balance: number;
+  description?: string;
+};
 
 interface AccountFormProps {
   account?: Account;
@@ -53,30 +51,45 @@ export function AccountForm({ account, onSuccess, onCancel }: AccountFormProps) 
   const isEditing = Boolean(account);
   const { currentWorkspace } = useWorkspaceStore();
 
-  const {
-    register,
-    handleSubmit,
-    setValue,
-    watch,
-    formState: { errors, isSubmitting }
-  } = useForm<AccountFormData>({
-    resolver: zodResolver(accountFormSchema),
+  // Enhanced form with validation
+  const form = useFormWithValidation(formSchemas.accountForm, {
+    mode: 'onChange',
     defaultValues: account ? {
       name: account.name,
-      type: account.type,
-      currency: account.currency,
+      type: account.type as any,
+      currency: account.currency as any,
       initial_balance: account.balance,
       description: account.description || '',
     } : {
-      currency: 'USD',
+      currency: 'USD' as any,
       initial_balance: 0,
+      type: 'bank' as any,
+      name: '',
     },
   });
 
-  const watchType = watch('type');
+  // Duplicate prevention for account names
+  const { validateUnique, isDuplicate, isCheckingDuplicate } = useDuplicatePreventionValidation<AccountFormData>(
+    async (fieldName, value) => {
+      if (fieldName === 'name' && currentWorkspace) {
+        try {
+          // Check if account name already exists in workspace
+          const accounts = await api.getAccounts(currentWorkspace.id);
+          const existingNames = accounts
+            .filter(acc => isEditing ? acc.id !== account?.id : true)
+            .map(acc => acc.name);
+          return existingNames.some(name => name.toLowerCase() === value.toLowerCase());
+        } catch {
+          return false; // Allow if check fails
+        }
+      }
+      return false;
+    }
+  );
 
-  const mutation = useMutation({
-    mutationFn: async (data: AccountFormData) => {
+  // Form submission handler
+  const { handleSubmit: handleFormSubmit, isSubmitting, submitError } = useFormSubmission<AccountFormData>(
+    async (data) => {
       if (isEditing) {
         return api.updateAccount(account!.id, {
           name: data.name,
@@ -96,14 +109,41 @@ export function AccountForm({ account, onSuccess, onCancel }: AccountFormProps) 
         });
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      onSuccess?.();
-    },
-  });
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['accounts'] });
+        onSuccess?.();
+      },
+    }
+  );
 
-  const onSubmit = handleSubmit((data) => {
-    mutation.mutate(data);
+  // Watch form values
+  const watchType = form.watch('type');
+  const watchName = form.watch('name');
+
+  // Validate unique name on change
+  useEffect(() => {
+    if (watchName && watchName.trim().length > 0) {
+      validateUnique('name', watchName).then(isUnique => {
+        if (!isUnique) {
+          form.setFieldError('name', 'An account with this name already exists');
+        } else {
+          form.clearErrors('name');
+        }
+      });
+    }
+  }, [watchName, validateUnique, form]);
+
+  const onSubmit = form.handleSubmit(async (data) => {
+    // Final validation before submit
+    const isFormValid = await form.validateForm();
+    const isNameUnique = !isDuplicate('name');
+    
+    if (!isFormValid || !isNameUnique) {
+      return;
+    }
+    
+    await handleFormSubmit(data as any);
   });
 
   return (
@@ -121,133 +161,139 @@ export function AccountForm({ account, onSuccess, onCancel }: AccountFormProps) 
       </CardHeader>
 
       <CardContent>
-        <form onSubmit={onSubmit} className="space-y-6">
-          {/* Account Name */}
-          <div className="space-y-2">
-            <Label htmlFor="name">Account Name *</Label>
-            <Input
-              id="name"
-              placeholder="e.g. Chase Checking, Emergency Fund"
-              {...register('name')}
-            />
-            {errors.name && (
-              <p className="text-sm text-destructive">{errors.name.message}</p>
-            )}
-          </div>
-
-          {/* Account Type (only for new accounts) */}
-          {!isEditing && (
-            <div className="space-y-2">
-              <Label>Account Type *</Label>
-              <Select onValueChange={(value) => setValue('type', value as AccountType)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select account type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {ACCOUNT_TYPES.map(({ value, label, description }) => (
-                    <SelectItem key={value} value={value}>
-                      <div>
-                        <div className="font-medium">{label}</div>
-                        <div className="text-sm text-muted-foreground">{description}</div>
-                      </div>
-                    </SelectItem>
-                  ) as any)}
-                </SelectContent>
-              </Select>
-              {errors.type && (
-                <p className="text-sm text-destructive">{errors.type.message}</p>
-              )}
-            </div>
-          )}
-
-          {/* Currency (only for new accounts) */}
-          {!isEditing && (
-            <div className="space-y-2">
-              <Label>Currency *</Label>
-              <Select onValueChange={(value) => setValue('currency', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select currency" />
-                </SelectTrigger>
-                <SelectContent>
-                  {COMMON_CURRENCIES.map(({ value, label }) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {errors.currency && (
-                <p className="text-sm text-destructive">{errors.currency.message}</p>
-              )}
-            </div>
-          )}
-
-          {/* Initial Balance (only for new accounts) */}
-          {!isEditing && (
-            <div className="space-y-2">
-              <Label htmlFor="initial_balance">
-                {watchType === 'debt' ? 'Initial Debt Amount' : 'Initial Balance'}
-              </Label>
+        <FormSection 
+          errors={form.formState.errors}
+          className="space-y-6"
+        >
+          <form onSubmit={onSubmit} className="space-y-6">
+            {/* Account Name */}
+            <FormField
+              label="Account Name"
+              isRequired
+              error={form.getFieldError('name')}
+              isValidating={isCheckingDuplicate('name')}
+              isValid={form.isFieldValid('name') && !isDuplicate('name')}
+              description="Choose a unique name for your account"
+            >
               <Input
-                id="initial_balance"
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                {...register('initial_balance')}
+                placeholder="e.g. Chase Checking, Emergency Fund"
+                {...form.register('name')}
               />
-              {watchType === 'debt' && (
-                <p className="text-sm text-muted-foreground">
-                  Enter the amount you owe (will be displayed as negative balance)
-                </p>
-              )}
-              {errors.initial_balance && (
-                <p className="text-sm text-destructive">{errors.initial_balance.message}</p>
-              )}
-            </div>
-          )}
+            </FormField>
 
-          {/* Description */}
-          <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
-            <Textarea
-              id="description"
-              placeholder="Optional notes about this account"
-              rows={3}
-              {...register('description')}
-            />
-            {errors.description && (
-              <p className="text-sm text-destructive">{errors.description.message}</p>
+            {/* Account Type (only for new accounts) */}
+            {!isEditing && (
+              <FormField
+                label="Account Type"
+                isRequired
+                error={form.getFieldError('type')}
+                isValid={form.isFieldValid('type')}
+                description="Select the type of account you're adding"
+              >
+                <Select onValueChange={(value) => form.setValue('type', value as AccountType)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select account type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ACCOUNT_TYPES.map(({ value, label, description }) => (
+                      <SelectItem key={value} value={value}>
+                        <div>
+                          <div className="font-medium">{label}</div>
+                          <div className="text-sm text-muted-foreground">{description}</div>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
             )}
-          </div>
 
-          {/* Error Display */}
-          {mutation.error && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                {mutation.error instanceof Error 
-                  ? mutation.error.message 
-                  : 'An error occurred while saving the account'
+            {/* Currency (only for new accounts) */}
+            {!isEditing && (
+              <FormField
+                label="Currency"
+                isRequired
+                error={form.getFieldError('currency')}
+                isValid={form.isFieldValid('currency')}
+                description="Select the currency for this account"
+              >
+                <Select onValueChange={(value) => form.setValue('currency', value as any)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select currency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COMMON_CURRENCIES.map(({ value, label }) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
+            )}
+
+            {/* Initial Balance (only for new accounts) */}
+            {!isEditing && (
+              <FormField
+                label={watchType === 'debt' ? 'Initial Debt Amount' : 'Initial Balance'}
+                error={form.getFieldError('initial_balance')}
+                isValid={form.isFieldValid('initial_balance')}
+                description={watchType === 'debt' 
+                  ? 'Enter the amount you owe (will be displayed as negative balance)'
+                  : 'Enter the current balance of this account'
                 }
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* Form Actions */}
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            {onCancel && (
-              <Button type="button" variant="outline" onClick={onCancel}>
-                Cancel
-              </Button>
+              >
+                <CurrencyInput
+                  currency={form.watch('currency') || 'USD'}
+                  placeholder="0.00"
+                  {...form.register('initial_balance')}
+                  error={form.getFieldError('initial_balance')}
+                />
+              </FormField>
             )}
-            <Button type="submit" disabled={isSubmitting || mutation.isPending}>
-              {(isSubmitting || mutation.isPending) && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+
+            {/* Description */}
+            <FormField
+              label="Description"
+              error={form.getFieldError('description')}
+              isValid={form.isFieldValid('description')}
+              description="Optional notes about this account"
+            >
+              <Textarea
+                placeholder="Optional notes about this account"
+                rows={3}
+                {...form.register('description')}
+              />
+            </FormField>
+
+            {/* Error Display */}
+            {submitError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  {submitError}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Form Actions */}
+            <div className="flex justify-end gap-3 pt-4 border-t">
+              {onCancel && (
+                <Button type="button" variant="outline" onClick={onCancel}>
+                  Cancel
+                </Button>
               )}
-              {isEditing ? 'Update Account' : 'Create Account'}
-            </Button>
-          </div>
-        </form>
+              <Button 
+                type="submit" 
+                disabled={!form.formState.isValid || isDuplicate('name')}
+                loading={isSubmitting}
+                loadingText={isEditing ? 'Updating...' : 'Creating...'}
+              >
+                {isEditing ? 'Update Account' : 'Create Account'}
+              </Button>
+            </div>
+          </form>
+        </FormSection>
       </CardContent>
     </Card>
   );
