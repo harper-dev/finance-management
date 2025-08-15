@@ -14,11 +14,22 @@ export interface NetworkStatus {
  * Hook for monitoring network status and handling offline/online scenarios
  */
 export function useNetworkStatus() {
-  const [networkStatus, setNetworkStatus] = useState<NetworkStatus>({
-    isOnline: navigator.onLine,
-    isConnected: navigator.onLine,
-    lastOnline: navigator.onLine ? new Date() : null,
-    connectionType: null
+  const [networkStatus, setNetworkStatus] = useState<NetworkStatus>(() => {
+    // Initialize state once during component mount
+    const getConnectionType = () => {
+      if ('connection' in navigator) {
+        const connection = (navigator as any).connection
+        return connection?.effectiveType || connection?.type || null
+      }
+      return null
+    }
+
+    return {
+      isOnline: navigator.onLine,
+      isConnected: navigator.onLine,
+      lastOnline: navigator.onLine ? new Date() : null,
+      connectionType: getConnectionType()
+    }
   })
   
   const queryClient = useQueryClient()
@@ -76,21 +87,6 @@ export function useNetworkStatus() {
       }
     }
 
-    // Get connection type if available
-    const getConnectionType = () => {
-      if ('connection' in navigator) {
-        const connection = (navigator as any).connection
-        return connection?.effectiveType || connection?.type || null
-      }
-      return null
-    }
-
-    // Initial setup
-    setNetworkStatus(prev => ({
-      ...prev,
-      connectionType: getConnectionType()
-    }))
-
     // Add event listeners
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
@@ -101,7 +97,7 @@ export function useNetworkStatus() {
       const handleConnectionChange = () => {
         setNetworkStatus(prev => ({
           ...prev,
-          connectionType: getConnectionType()
+          connectionType: connection?.effectiveType || connection?.type || null
         }))
       }
       connection?.addEventListener('change', handleConnectionChange)

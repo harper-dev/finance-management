@@ -1,4 +1,4 @@
-import { createContext, useContext, ReactNode } from 'react';
+import { createContext, useContext, ReactNode, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
 interface LanguageContextType {
@@ -37,21 +37,21 @@ const currencies = {
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const { t, i18n } = useTranslation();
   
-  const setLanguage = (lang: string) => {
+  const setLanguage = useCallback((lang: string) => {
     i18n.changeLanguage(lang);
-  };
+  }, [i18n]);
   
-  const getCurrentCurrency = () => {
+  const getCurrentCurrency = useCallback(() => {
     return currencies[i18n.language as keyof typeof currencies] || currencies.en;
-  };
+  }, [i18n.language]);
 
-  const value: LanguageContextType = {
+  const value = useMemo(() => ({
     language: i18n.language,
     setLanguage,
     t,
     currencies,
     getCurrentCurrency
-  };
+  }), [i18n.language, setLanguage, t, getCurrentCurrency]);
 
   return (
     <LanguageContext.Provider value={value}>
