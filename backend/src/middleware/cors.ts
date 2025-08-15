@@ -7,18 +7,19 @@ export async function corsMiddleware(c: Context, next: Next) {
   const allowedOriginsStr = c.env?.ALLOWED_ORIGINS || 'http://localhost:3001,http://localhost:5173'
   const allowedOrigins = allowedOriginsStr.split(',').map(o => o.trim())
   
-  // Allow requests from allowed origins
-  if (origin && allowedOrigins.includes(origin)) {
+  // Always allow localhost origins in development
+  const isLocalhost = origin?.startsWith('http://localhost') || origin?.startsWith('http://127.0.0.1')
+  
+  if (origin && (allowedOrigins.includes(origin) || isLocalhost)) {
     c.header('Access-Control-Allow-Origin', origin)
+    console.log(`CORS: Allowing origin: ${origin}`)
   } else {
-    // For development, be more permissive with localhost origins
-    if (origin?.startsWith('http://localhost') || origin?.startsWith('http://127.0.0.1')) {
-      c.header('Access-Control-Allow-Origin', origin)
-    }
+    console.log(`CORS: Origin not allowed: ${origin}`)
+    console.log(`CORS: Allowed origins: ${allowedOrigins.join(', ')}`)
   }
   
-  c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-  c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH')
+  c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-ID')
   c.header('Access-Control-Allow-Credentials', 'true')
   c.header('Access-Control-Max-Age', '86400')
 

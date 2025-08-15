@@ -3,8 +3,17 @@ import { getSupabaseClient } from '../services/supabase'
 import { WorkspaceService } from '../services'
 import { requireAuth, AuthUser } from '../middleware/auth'
 import { successResponse, errorResponse } from '../utils/response'
-import { validateRequest, workspaceCreateSchema, workspaceUpdateSchema, uuidSchema } from '../utils/validation'
+import { workspaceCreateSchema, workspaceUpdateSchema, uuidSchema } from '../utils/validationSchemas'
 import { Env } from '../types/env'
+
+// Helper function to validate data with Zod schema
+function validateData<T>(schema: any, data: any): T {
+  const result = schema.safeParse(data)
+  if (!result.success) {
+    throw new Error(`Validation failed: ${JSON.stringify(result.error.errors)}`)
+  }
+  return result.data
+}
 
 const workspaces = new Hono<{ Bindings: Env, Variables: { user: AuthUser } }>()
 
@@ -27,7 +36,7 @@ workspaces.get('/', requireAuth(), async (c) => {
 workspaces.get('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const workspaceId = validateRequest(uuidSchema, c.req.param('id'))
+    const workspaceId = validateData(uuidSchema, c.req.param('id'))
     
     const supabase = getSupabaseClient(c.env)
     const workspaceService = new WorkspaceService(supabase)
@@ -52,7 +61,7 @@ workspaces.post('/', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     const body = await c.req.json()
-    const validatedData = validateRequest(workspaceCreateSchema, body)
+    const validatedData = validateData(workspaceCreateSchema, body)
     
     const supabase = getSupabaseClient(c.env)
     const workspaceService = new WorkspaceService(supabase)
@@ -73,9 +82,9 @@ workspaces.post('/', requireAuth(), async (c) => {
 workspaces.put('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const workspaceId = validateRequest(uuidSchema, c.req.param('id'))
+    const workspaceId = validateData(uuidSchema, c.req.param('id'))
     const body = await c.req.json()
-    const validatedData = validateRequest(workspaceUpdateSchema, body)
+    const validatedData = validateData(workspaceUpdateSchema, body)
     
     const supabase = getSupabaseClient(c.env)
     const workspaceService = new WorkspaceService(supabase)
@@ -98,7 +107,7 @@ workspaces.put('/:id', requireAuth(), async (c) => {
 workspaces.delete('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const workspaceId = validateRequest(uuidSchema, c.req.param('id'))
+    const workspaceId = validateData(uuidSchema, c.req.param('id'))
     
     const supabase = getSupabaseClient(c.env)
     const workspaceService = new WorkspaceService(supabase)
@@ -118,7 +127,7 @@ workspaces.delete('/:id', requireAuth(), async (c) => {
 workspaces.post('/:id/invite', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const workspaceId = validateRequest(uuidSchema, c.req.param('id'))
+    const workspaceId = validateData(uuidSchema, c.req.param('id'))
     const body = await c.req.json()
     const { user_id, role = 'member' } = body
     
@@ -147,8 +156,8 @@ workspaces.post('/:id/invite', requireAuth(), async (c) => {
 workspaces.put('/:id/members/:userId', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const workspaceId = validateRequest(uuidSchema, c.req.param('id'))
-    const userId = validateRequest(uuidSchema, c.req.param('userId'))
+    const workspaceId = validateData(uuidSchema, c.req.param('id'))
+    const userId = validateData(uuidSchema, c.req.param('userId'))
     const body = await c.req.json()
     const { role } = body
     
@@ -177,8 +186,8 @@ workspaces.put('/:id/members/:userId', requireAuth(), async (c) => {
 workspaces.delete('/:id/members/:userId', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const workspaceId = validateRequest(uuidSchema, c.req.param('id'))
-    const userId = validateRequest(uuidSchema, c.req.param('userId'))
+    const workspaceId = validateData(uuidSchema, c.req.param('id'))
+    const userId = validateData(uuidSchema, c.req.param('userId'))
     
     const supabase = getSupabaseClient(c.env)
     const workspaceService = new WorkspaceService(supabase)

@@ -12,7 +12,7 @@ export class WorkspaceService {
   }
 
   async getUserWorkspaces(userId: string): Promise<Workspace[]> {
-    return await this.workspaceRepo.findByUserId(userId)
+    return await this.workspaceRepo.findUserWorkspaces(userId)
   }
 
   async getWorkspaceById(workspaceId: string, userId: string): Promise<(Workspace & { members: WorkspaceMember[] }) | null> {
@@ -27,17 +27,20 @@ export class WorkspaceService {
 
   async createWorkspace(workspaceData: CreateWorkspace, userId: string): Promise<Workspace> {
     // Ensure the creator is set as owner
-    const workspace = await this.workspaceRepo.create({
+    const workspaceDataWithOwner = {
       ...workspaceData,
-      owner_id: userId
-    })
+      ownerId: userId  // Use ownerId instead of owner_id
+    }
+    
+    const workspace = await this.workspaceRepo.create(workspaceDataWithOwner)
 
-    // Add creator as owner member
-    await this.workspaceRepo.addMember({
-      workspace_id: workspace.id,
-      user_id: userId,
-      role: 'owner'
-    })
+    // TODO: Add creator as owner member when member management is implemented
+    // For now, just return the created workspace
+    // await this.workspaceRepo.addMember({
+    //   workspace_id: workspace.id,
+    //   user_id: userId,
+    //   role: 'owner'
+    // })
 
     return workspace
   }

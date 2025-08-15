@@ -3,8 +3,18 @@ import { getSupabaseClient } from '../services/supabase'
 import { AccountService } from '../services'
 import { requireAuth, AuthUser } from '../middleware/auth'
 import { successResponse, errorResponse } from '../utils/response'
-import { validateRequest, accountCreateSchema, accountUpdateSchema, uuidSchema, paginationSchema } from '../utils/validation'
+import { accountCreateSchema, accountUpdateSchema, uuidSchema, paginationSchema } from '../utils/validationSchemas'
+import { z } from 'zod'
 import { Env } from '../types/env'
+
+// Helper function to validate data with Zod schema
+function validateData<T>(schema: z.ZodSchema<T>, data: any): T {
+  const result = schema.safeParse(data)
+  if (!result.success) {
+    throw new Error(`Validation failed: ${JSON.stringify(result.error.errors)}`)
+  }
+  return result.data
+}
 
 const accounts = new Hono<{ Bindings: Env, Variables: { user: AuthUser } }>()
 
@@ -18,11 +28,11 @@ accounts.get('/', requireAuth(), async (c) => {
       return errorResponse(c, 'workspace_id is required', 400)
     }
     
-    validateRequest(uuidSchema, workspaceId)
+    const validatedWorkspaceId = validateData(uuidSchema, workspaceId)
     
     const query = c.req.query()
     const filters: any = {}
-    const pagination = query.page ? validateRequest(paginationSchema, { 
+    const pagination = query.page ? validateData(paginationSchema, { 
       page: query.page, 
       limit: query.limit 
     }) as { page: number; limit: number } : undefined
@@ -35,9 +45,9 @@ accounts.get('/', requireAuth(), async (c) => {
     }
     
     const supabase = getSupabaseClient(c.env)
-    const accountService = new AccountService(supabase)
+    const accountService = new AccountService()
     
-    const accounts = await accountService.getAccounts(workspaceId, user.id, filters, pagination)
+    const accounts = await accountService.getAccountsByWorkspace(validatedWorkspaceId, filters.isActive)
     
     return successResponse(c, accounts)
   } catch (error) {
@@ -55,12 +65,16 @@ accounts.get('/', requireAuth(), async (c) => {
 accounts.get('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const accountId = validateRequest(uuidSchema, c.req.param('id'))
+    const accountId = validateData(uuidSchema, c.req.param('id'))
     
     const supabase = getSupabaseClient(c.env)
-    const accountService = new AccountService(supabase)
+    const accountService = new AccountService()
     
-    const account = await accountService.getAccountById(accountId, user.id)
+    const account = await accountService.getAccountWithTransactions(accountId)
+    
+    if (!account) {
+      return errorResponse(c, 'Account not found', 404)
+    }
     
     return successResponse(c, account)
   } catch (error) {
@@ -88,17 +102,17 @@ accounts.post('/', requireAuth(), async (c) => {
     // Create a schema without workspace_id for validation
     const { workspace_id, ...accountDataWithoutWorkspace } = body
     
-    const validatedData = validateRequest(accountCreateSchema.omit({ workspace_id: true }), accountDataWithoutWorkspace)
+    const validatedAccountData = validateData(accountCreateSchema.omit({ workspaceId: true, createdBy: true }), accountDataWithoutWorkspace)
     const accountData = {
-      ...validatedData,
-      workspace_id: workspaceId,
-      created_by: user.id
+      ...validatedAccountData,
+      workspaceId: workspaceId,
+      createdBy: user.id
     }
     
     const supabase = getSupabaseClient(c.env)
-    const accountService = new AccountService(supabase)
+    const accountService = new AccountService()
     
-    const account = await accountService.createAccount(accountData, user.id)
+    const account = await accountService.createAccount(accountData)
     
     return successResponse(c, account, 'Account created successfully')
   } catch (error) {
@@ -116,14 +130,18 @@ accounts.post('/', requireAuth(), async (c) => {
 accounts.put('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const accountId = validateRequest(uuidSchema, c.req.param('id'))
+    const accountId = validateData(uuidSchema, c.req.param('id'))
     const body = await c.req.json()
-    const validatedData = validateRequest(accountUpdateSchema, body)
+    const validatedData = validateData(accountUpdateSchema, body)
     
     const supabase = getSupabaseClient(c.env)
-    const accountService = new AccountService(supabase)
+    const accountService = new AccountService()
     
-    const account = await accountService.updateAccount(accountId, validatedData, user.id)
+    const account = await accountService.updateAccount(accountId, validatedData)
+    
+    if (!account) {
+      return errorResponse(c, 'Account not found', 404)
+    }
     
     return successResponse(c, account, 'Account updated successfully')
   } catch (error) {
@@ -144,14 +162,18 @@ accounts.put('/:id', requireAuth(), async (c) => {
 accounts.delete('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const accountId = validateRequest(uuidSchema, c.req.param('id'))
+    const accountId = validateData(uuidSchema, c.req.param('id'))
     
     const supabase = getSupabaseClient(c.env)
-    const accountService = new AccountService(supabase)
+    const accountService = new AccountService()
     
-    const account = await accountService.deleteAccount(accountId, user.id)
+    const result = await accountService.delete(accountId)
     
-    return successResponse(c, account, 'Account deleted successfully')
+    if (!result) {
+      return errorResponse(c, 'Account not found', 404)
+    }
+    
+    return successResponse(c, null, 'Account deleted successfully')
   } catch (error) {
     if (error instanceof Error && error.message.includes('Access denied')) {
       return errorResponse(c, error.message, 403)
@@ -167,13 +189,13 @@ accounts.delete('/:id', requireAuth(), async (c) => {
 accounts.get('/:id/balance-history', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const accountId = validateRequest(uuidSchema, c.req.param('id'))
+    const accountId = validateData(uuidSchema, c.req.param('id'))
     const days = parseInt(c.req.query('days') || '30')
     
     const supabase = getSupabaseClient(c.env)
-    const accountService = new AccountService(supabase)
+    const accountService = new AccountService()
     
-    const history = await accountService.getBalanceHistory(accountId, user.id, days)
+    const history = await accountService.getAccountWithTransactions(accountId)
     
     return successResponse(c, history)
   } catch (error) {

@@ -36,7 +36,20 @@ export class FinanceManagementApp {
     this.app.use('*', corsMiddleware)
     this.app.use('*', requestContextMiddleware)
     this.app.use('*', loggingMiddleware)
+    this.app.use('*', this.setupEnvironment.bind(this))
     this.app.use('*', errorLoggingMiddleware)
+  }
+
+  private setupEnvironment(c: any, next: any): void {
+    // Set environment variables for all routes
+    c.env = {
+      SUPABASE_URL: process.env.SUPABASE_URL,
+      SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
+      SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY,
+      JWT_SECRET: process.env.JWT_SECRET,
+      ENVIRONMENT: process.env.NODE_ENV || 'development'
+    }
+    return next()
   }
 
   private setupRoutes(): void {

@@ -4,8 +4,8 @@ import { z } from 'zod'
 export const uuidSchema = z.string().uuid('Invalid UUID format')
 
 export const paginationSchema = z.object({
-  page: z.number().int().positive().default(1),
-  limit: z.number().int().positive().max(100).default(20)
+  page: z.string().transform((val) => parseInt(val, 10)).pipe(z.number().int().positive().default(1)),
+  limit: z.string().transform((val) => parseInt(val, 10)).pipe(z.number().int().positive().max(100).default(20))
 })
 
 export const dateRangeSchema = z.object({
@@ -30,14 +30,11 @@ export const userProfileUpdateSchema = userProfileCreateSchema.partial().omit({ 
 // Workspace schemas
 export const workspaceCreateSchema = z.object({
   name: z.string().min(1).max(100),
-  description: z.string().max(500).optional(),
-  ownerId: z.string().uuid(),
-  currency: z.string().length(3).default('USD'),
-  timezone: z.string().default('UTC'),
-  isActive: z.boolean().default(true)
+  type: z.enum(['personal', 'family', 'team']),
+  currency: z.string().length(3).default('SGD')
 })
 
-export const workspaceUpdateSchema = workspaceCreateSchema.partial().omit({ ownerId: true })
+export const workspaceUpdateSchema = workspaceCreateSchema.partial()
 
 // Account schemas
 export const accountCreateSchema = z.object({

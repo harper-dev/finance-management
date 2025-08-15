@@ -1,3 +1,5 @@
+import { SupabaseClient } from '@supabase/supabase-js'
+import { Database } from '../../types/database'
 import { BaseAnalyticsService } from './BaseAnalyticsService'
 import { AccountRepository } from '../../repositories/AccountRepository'
 import { TransactionRepository } from '../../repositories/TransactionRepository'
@@ -50,7 +52,7 @@ export class WorkspaceOverviewService extends BaseAnalyticsService {
   private savingsGoalRepository: SavingsGoalRepository
   private workspaceRepository: WorkspaceRepository
 
-  constructor() {
+  constructor(supabase: SupabaseClient<Database>) {
     super()
     this.accountRepository = new AccountRepository()
     this.transactionRepository = new TransactionRepository()

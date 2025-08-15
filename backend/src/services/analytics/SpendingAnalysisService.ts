@@ -1,3 +1,5 @@
+import { SupabaseClient } from '@supabase/supabase-js'
+import { Database } from '../../types/database'
 import { BaseAnalyticsService } from './BaseAnalyticsService'
 import { TransactionRepository } from '../../repositories/TransactionRepository'
 
@@ -45,7 +47,7 @@ export interface SpendingPattern {
 export class SpendingAnalysisService extends BaseAnalyticsService {
   private transactionRepository: TransactionRepository
 
-  constructor() {
+  constructor(supabase: SupabaseClient<Database>) {
     super()
     this.transactionRepository = new TransactionRepository()
   }

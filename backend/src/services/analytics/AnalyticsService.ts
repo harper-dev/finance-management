@@ -1,3 +1,5 @@
+import { SupabaseClient } from '@supabase/supabase-js'
+import { Database } from '../../types/database'
 import { WorkspaceOverviewService } from './WorkspaceOverviewService'
 import { FinancialTrendService } from './FinancialTrendService'
 import { SpendingAnalysisService } from './SpendingAnalysisService'
@@ -8,10 +10,10 @@ export class AnalyticsService {
   private financialTrendService: FinancialTrendService
   private spendingAnalysisService: SpendingAnalysisService
 
-  constructor() {
-    this.workspaceOverviewService = new WorkspaceOverviewService()
-    this.financialTrendService = new FinancialTrendService()
-    this.spendingAnalysisService = new SpendingAnalysisService()
+  constructor(supabase: SupabaseClient<Database>) {
+    this.workspaceOverviewService = new WorkspaceOverviewService(supabase)
+    this.financialTrendService = new FinancialTrendService(supabase)
+    this.spendingAnalysisService = new SpendingAnalysisService(supabase)
   }
 
   // Workspace Overview Methods

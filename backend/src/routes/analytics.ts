@@ -3,8 +3,17 @@ import { getSupabaseClient } from '../services/supabase'
 import { AnalyticsService } from '../services'
 import { requireAuth, AuthUser } from '../middleware/auth'
 import { successResponse, errorResponse } from '../utils/response'
-import { validateRequest, uuidSchema, dateRangeSchema } from '../utils/validation'
+import { uuidSchema, dateRangeSchema } from '../utils/validationSchemas'
 import { Env } from '../types/env'
+
+// Helper function to validate data with Zod schema
+function validateData<T>(schema: any, data: any): T {
+  const result = schema.safeParse(data)
+  if (!result.success) {
+    throw new Error(`Validation failed: ${JSON.stringify(result.error.errors)}`)
+  }
+  return result.data
+}
 
 const analytics = new Hono<{ Bindings: Env, Variables: { user: AuthUser } }>()
 
@@ -19,7 +28,7 @@ analytics.get('/overview', requireAuth(), async (c) => {
     }
     
     // Validate and sanitize workspace ID
-    const sanitizedWorkspaceId = validateRequest(uuidSchema, workspaceId.trim())
+    const sanitizedWorkspaceId = validateData(uuidSchema, workspaceId.trim())
     
     const supabase = getSupabaseClient(c.env)
     const analyticsService = new AnalyticsService(supabase)
@@ -67,7 +76,7 @@ analytics.get('/spending', requireAuth(), async (c) => {
     }
     
     // Validate and sanitize inputs
-    const sanitizedWorkspaceId = validateRequest(uuidSchema, workspaceId.trim())
+    const sanitizedWorkspaceId = validateData(uuidSchema, workspaceId.trim())
     
     // Validate period parameter with better error message
     const validPeriods = ['month', 'quarter', 'year']
@@ -76,28 +85,30 @@ analytics.get('/spending', requireAuth(), async (c) => {
     }
     const validPeriod = period as 'month' | 'quarter' | 'year'
     
-    // Validate optional date range parameters
-    const startDate = c.req.query('start_date')
-    const endDate = c.req.query('end_date')
+    // Calculate date range based on period
+    const endDate = new Date()
+    const startDate = new Date()
     
-    if (startDate && endDate) {
-      try {
-        validateRequest(dateRangeSchema, {
-          start_date: startDate,
-          end_date: endDate
-        })
-      } catch (error) {
-        return errorResponse(c, 'Invalid date format. Use YYYY-MM-DD format.', 422)
-      }
+    switch (validPeriod) {
+      case 'month':
+        startDate.setMonth(startDate.getMonth() - 1)
+        break
+      case 'quarter':
+        startDate.setMonth(startDate.getMonth() - 3)
+        break
+      case 'year':
+        startDate.setFullYear(startDate.getFullYear() - 1)
+        break
     }
     
     const supabase = getSupabaseClient(c.env)
     const analyticsService = new AnalyticsService(supabase)
     
-    const spending = await analyticsService.getSpendingAnalysis(sanitizedWorkspaceId, user.id, validPeriod)
+    // Use getSpendingAnalysis with proper date parameters
+    const spending = await analyticsService.getSpendingAnalysis(sanitizedWorkspaceId, startDate, endDate)
     
     // Provide fallback data and helpful messages
-    if (spending.length === 0) {
+    if (!spending || spending.topCategories.length === 0) {
       return successResponse(c, {
         spending: [],
         message: `No spending data found for the ${validPeriod} period.`,
@@ -111,14 +122,14 @@ analytics.get('/spending', requireAuth(), async (c) => {
     }
     
     // Add summary statistics
-    const totalAmount = spending.reduce((sum, item) => sum + item.amount, 0)
-    const topCategory = spending.reduce((max, item) => item.amount > max.amount ? item : max, spending[0])
+    const totalAmount = spending.totalSpent
+    const topCategory = spending.topCategories[0]
     
     return successResponse(c, {
-      spending,
+      spending: spending.topCategories,
       summary: {
         total_amount: totalAmount,
-        categories_count: spending.length,
+        categories_count: spending.topCategories.length,
         top_category: topCategory.category,
         period: validPeriod
       }
@@ -151,7 +162,7 @@ analytics.get('/income', requireAuth(), async (c) => {
     }
     
     // Validate and sanitize inputs
-    const sanitizedWorkspaceId = validateRequest(uuidSchema, workspaceId.trim())
+    const sanitizedWorkspaceId = validateData(uuidSchema, workspaceId.trim())
     
     // Validate period parameter with better error message
     const validPeriods = ['month', 'quarter', 'year']
@@ -166,7 +177,7 @@ analytics.get('/income', requireAuth(), async (c) => {
     
     if (startDate && endDate) {
       try {
-        validateRequest(dateRangeSchema, {
+        validateData(dateRangeSchema, {
           start_date: startDate,
           end_date: endDate
         })
@@ -234,7 +245,7 @@ analytics.get('/trends', requireAuth(), async (c) => {
       return errorResponse(c, 'workspace_id is required', 400)
     }
     
-    validateRequest(uuidSchema, workspaceId)
+    validateData(uuidSchema, workspaceId)
     
     // Validate months parameter
     let months = 12
@@ -293,7 +304,7 @@ analytics.get('/cash-flow', requireAuth(), async (c) => {
       return errorResponse(c, 'workspace_id is required', 400)
     }
     
-    validateRequest(uuidSchema, workspaceId)
+    validateData(uuidSchema, workspaceId)
     
     const supabase = getSupabaseClient(c.env)
     const analyticsService = new AnalyticsService(supabase)
@@ -319,7 +330,7 @@ analytics.get('/spending-patterns', requireAuth(), async (c) => {
       return errorResponse(c, 'workspace_id is required', 400)
     }
     
-    validateRequest(uuidSchema, workspaceId)
+    validateData(uuidSchema, workspaceId)
     
     const supabase = getSupabaseClient(c.env)
     const analyticsService = new AnalyticsService(supabase)

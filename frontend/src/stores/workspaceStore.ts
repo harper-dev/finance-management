@@ -28,6 +28,16 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       loadWorkspaces: async () => {
         try {
           set({ isLoading: true })
+          
+          // Check if token is available before making request
+          const token = localStorage.getItem('auth_token')
+          if (!token) {
+            console.warn('No auth token available, skipping workspace load')
+            set({ isLoading: false })
+            return
+          }
+          
+          console.log('Loading workspaces with token:', `${token.substring(0, 20)}...`)
           const workspaces = await apiClient.getWorkspaces()
           
           // Set first workspace as current if none selected

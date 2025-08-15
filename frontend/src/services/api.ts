@@ -121,6 +121,10 @@ class ApiClient {
 
     this.setupInterceptors()
     this.setupOfflineDetection()
+    
+    // Initialize online status properly
+    this.isOnline = navigator.onLine
+    console.log('API Client initialized with online status:', this.isOnline)
   }
 
   /**
@@ -130,15 +134,57 @@ class ApiClient {
     // Request interceptor
     this.client.interceptors.request.use(
       (config) => {
+        console.log('API Request:', {
+          method: config.method?.toUpperCase(),
+          url: config.url,
+          baseURL: config.baseURL,
+          fullURL: `${config.baseURL}${config.url}`,
+          isOnline: this.isOnline,
+          navigatorOnline: navigator.onLine
+        })
+        
         // Check if offline before making request
         if (!this.isOnline) {
-          return Promise.reject(new OfflineError())
+          console.log('Request blocked - API client thinks we are offline')
+          console.log('navigator.onLine:', navigator.onLine)
+          console.log('this.isOnline:', this.isOnline)
+          // Don't block the request, just log the warning
+          // return Promise.reject(new OfflineError())
         }
 
         // Add auth token to requests
         const token = authService.getToken()
-        if (token) {
+        if (token && token.trim() !== '') {
           config.headers.Authorization = `Bearer ${token}`
+          console.log('Adding auth token to request:', {
+            url: config.url,
+            token: `${token.substring(0, 20)}...`,
+            hasToken: true,
+            tokenLength: token.length
+          })
+        } else {
+          console.warn('No valid auth token available for request:', {
+            url: config.url,
+            hasToken: false,
+            token: token,
+            localStorage: {
+              auth_token: !!localStorage.getItem('auth_token'),
+              refresh_token: !!localStorage.getItem('refresh_token')
+            }
+          })
+          
+          // For protected endpoints, reject the request if no token
+          if (config.url && (
+            config.url.includes('/workspaces') ||
+            config.url.includes('/accounts') ||
+            config.url.includes('/transactions') ||
+            config.url.includes('/budgets') ||
+            config.url.includes('/savings-goals') ||
+            config.url.includes('/analytics')
+          )) {
+            console.error('Protected endpoint requested without token, rejecting request')
+            return Promise.reject(new Error('Authentication required'))
+          }
         }
 
         // Add request ID for tracking
@@ -147,14 +193,33 @@ class ApiClient {
         return config
       },
       (error) => {
+        console.error('Request interceptor error:', error)
         return Promise.reject(error)
       }
     )
 
     // Response interceptor with enhanced error handling
     this.client.interceptors.response.use(
-      (response) => response,
+      (response) => {
+        console.log('API Response:', {
+          status: response.status,
+          statusText: response.statusText,
+          url: response.config.url,
+          method: response.config.method?.toUpperCase()
+        })
+        return response
+      },
       async (error: AxiosError) => {
+        console.error('API Response Error:', {
+          message: error.message,
+          code: error.code,
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          url: error.config?.url,
+          method: error.config?.method?.toUpperCase(),
+          data: error.response?.data
+        })
+        
         const enhancedError = this.handleApiError(error)
         
         // Report network errors to monitoring service
@@ -179,21 +244,26 @@ class ApiClient {
   private setupOfflineDetection() {
     window.addEventListener('online', () => {
       this.isOnline = true
-      console.log('Connection restored')
+      console.log('Connection restored - API client online')
     })
 
     window.addEventListener('offline', () => {
       this.isOnline = false
-      console.log('Connection lost')
+      console.log('Connection lost - API client offline')
     })
+    
+    // Log initial state
+    console.log('Initial navigator.onLine:', navigator.onLine)
+    console.log('Initial API client isOnline:', this.isOnline)
   }
 
   /**
    * Enhanced error handling for API responses
    */
   private handleApiError(error: AxiosError): Error {
-    // Check if offline first
-    if (!this.isOnline) {
+    // Check if offline first, but be less aggressive
+    if (!this.isOnline && !navigator.onLine) {
+      console.log('Both API client and navigator think we are offline')
       return new OfflineError()
     }
 
@@ -380,14 +450,28 @@ class ApiClient {
   }
 
   /**
-   * Test connection to the API server
+   * Test the API connection
    */
-  public async testConnection(): Promise<boolean> {
+  async testConnection(): Promise<{ success: boolean; message: string; details?: any }> {
     try {
-      await this.client.get('/health', { timeout: 5000 })
-      return true
+      console.log('Testing API connection...')
+      console.log('Base URL:', this.client.defaults.baseURL)
+      console.log('isOnline:', this.isOnline)
+      console.log('navigator.onLine:', navigator.onLine)
+      
+      const response = await this.client.get('/workspaces')
+      return { 
+        success: true, 
+        message: 'Connection successful',
+        details: { status: response.status, data: response.data }
+      }
     } catch (error) {
-      return false
+      console.error('API connection test failed:', error)
+      return { 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Unknown error',
+        details: error
+      }
     }
   }
 

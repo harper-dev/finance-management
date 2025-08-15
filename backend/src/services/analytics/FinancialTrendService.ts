@@ -1,3 +1,5 @@
+import { SupabaseClient } from '@supabase/supabase-js'
+import { Database } from '../../types/database'
 import { BaseAnalyticsService } from './BaseAnalyticsService'
 import { TransactionRepository } from '../../repositories/TransactionRepository'
 import { AccountRepository } from '../../repositories/AccountRepository'
@@ -31,7 +33,7 @@ export class FinancialTrendService extends BaseAnalyticsService {
   private transactionRepository: TransactionRepository
   private accountRepository: AccountRepository
 
-  constructor() {
+  constructor(supabase: SupabaseClient<Database>) {
     super()
     this.transactionRepository = new TransactionRepository()
     this.accountRepository = new AccountRepository()

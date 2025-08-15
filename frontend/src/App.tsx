@@ -8,6 +8,8 @@ import { ErrorBoundary, QueryErrorBoundary } from '@/components/error'
 import { NetworkStatusIndicator } from '@/components/ui/network-status-indicator'
 import { errorReportingService } from '@/services/errorReporting'
 import { NetworkError, ValidationError, AuthenticationError, AuthorizationError, OfflineError, TimeoutError } from '@/services/api'
+import { testApiConnection, testCors } from '@/test-connection'
+import { apiClient } from '@/services/api'
 import '@/lib/i18n'
 
 // Auth Components
@@ -131,14 +133,38 @@ function App() {
 
   useEffect(() => {
     initialize()
+    
+    // Add test functions to global window for debugging
+    if (process.env.NODE_ENV === 'development') {
+      (window as any).testApiConnection = testApiConnection
+      ;(window as any).testCors = testCors
+      ;(window as any).testApiClient = () => apiClient.testConnection()
+      ;(window as any).apiClient = apiClient
+      ;(window as any).checkAuthStatus = () => {
+        const token = localStorage.getItem('auth_token')
+        const refreshToken = localStorage.getItem('refresh_token')
+        return {
+          hasToken: !!token,
+          hasRefreshToken: !!refreshToken,
+          token: token ? `${token.substring(0, 20)}...` : null,
+          refreshToken: refreshToken ? `${refreshToken.substring(0, 20)}...` : null
+        }
+      }
+      console.log('Test functions added to window: testApiConnection, testCors, testApiClient, apiClient, checkAuthStatus')
+    }
   }, []) // Remove initialize from dependencies to prevent re-initialization
 
   useEffect(() => {
     if (isInitialized && user) {
-      // Only load workspaces if user is authenticated
-      loadWorkspaces()
-      // Set user context for error reporting
-      errorReportingService.setUserContext(user.id)
+      // Only load workspaces if user is authenticated AND token is available
+      const token = localStorage.getItem('auth_token')
+      if (token) {
+        loadWorkspaces()
+        // Set user context for error reporting
+        errorReportingService.setUserContext(user.id)
+      } else {
+        console.warn('User authenticated but no token found, skipping workspace load')
+      }
     } else {
       // Clear user context on logout
       errorReportingService.clearUserContext()

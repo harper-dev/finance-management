@@ -51,6 +51,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
           
           const result = await authService.login({ email, password })
           
+          // Ensure token is stored before setting user state
+          // This prevents race condition where loadWorkspaces is called before token is available
+          await new Promise(resolve => setTimeout(resolve, 100))
+          
           set({ 
             user: result.user, 
             profile: result.profile,

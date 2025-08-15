@@ -205,7 +205,7 @@ auth.post('/register', async (c) => {
 })
 
 // Update user profile endpoint
-auth.put('/profile', requireAuth, async (c) => {
+auth.put('/profile', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     const body = await c.req.json()
@@ -230,7 +230,7 @@ auth.put('/profile', requireAuth, async (c) => {
 })
 
 // Create user profile endpoint
-auth.post('/profile', requireAuth, async (c) => {
+auth.post('/profile', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     const body = await c.req.json()
@@ -251,7 +251,7 @@ auth.post('/profile', requireAuth, async (c) => {
 })
 
 // Get user profile endpoint
-auth.get('/profile', requireAuth, async (c) => {
+auth.get('/profile', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     

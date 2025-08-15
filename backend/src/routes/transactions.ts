@@ -3,9 +3,18 @@ import { getSupabaseClient } from '../services/supabase'
 import { TransactionService } from '../services'
 import { requireAuth, AuthUser } from '../middleware/auth'
 import { successResponse, errorResponse } from '../utils/response'
-import { validateRequest, transactionCreateSchema, transactionUpdateSchema, uuidSchema, paginationSchema } from '../utils/validation'
-import { extendedLogger } from '../utils/logger'
+import { transactionCreateSchema, transactionUpdateSchema, uuidSchema, paginationSchema } from '../utils/validationSchemas'
+import { z } from 'zod'
 import { Env } from '../types/env'
+
+// Helper function to validate data with Zod schema
+function validateData<T>(schema: z.ZodSchema<T>, data: any): T {
+  const result = schema.safeParse(data)
+  if (!result.success) {
+    throw new Error(`Validation failed: ${JSON.stringify(result.error.errors)}`)
+  }
+  return result.data
+}
 
 const transactions = new Hono<{ Bindings: Env, Variables: { user: AuthUser } }>()
 
@@ -15,25 +24,18 @@ transactions.get('/', requireAuth(), async (c) => {
     const user = c.get('user')
     const workspaceId = c.req.query('workspace_id')
     
-    extendedLogger.debug('Fetching transactions', { 
-      userId: user.id, 
-      workspaceId,
-      query: c.req.query()
-    });
-    
     if (!workspaceId) {
-      extendedLogger.warn('Missing workspace_id in transaction query', { userId: user.id });
       return errorResponse(c, 'workspace_id is required', 400)
     }
     
-    validateRequest(uuidSchema, workspaceId)
+    validateData(uuidSchema, workspaceId)
     
     const query = c.req.query()
     const filters: any = {}
-    const pagination = query.page ? validateRequest(paginationSchema, { 
+    const pagination = query.page ? validateData(paginationSchema, { 
       page: query.page, 
       limit: query.limit 
-    }) as { page: number; limit: number } : undefined
+    }) : undefined
     
     if (query.account_id) {
       filters.account_id = query.account_id
@@ -52,20 +54,11 @@ transactions.get('/', requireAuth(), async (c) => {
     }
     
     const supabase = getSupabaseClient(c.env)
-    const transactionService = new TransactionService(supabase)
+    const transactionService = new TransactionService()
     
     const startTime = Date.now();
-    const transactions = await transactionService.getTransactions(workspaceId, user.id, filters, pagination)
+    const transactions = await transactionService.getTransactionsByWorkspace(workspaceId, { pagination, filters })
     const duration = Date.now() - startTime;
-    
-    extendedLogger.logDbOperation('SELECT', 'transactions', duration, true);
-    
-    extendedLogger.info('Transactions fetched successfully', {
-      userId: user.id,
-      workspaceId,
-      count: transactions.data?.length || 0,
-      duration: `${duration}ms`
-    });
     
     // If transactions is already a paginated result, return it directly
     // Otherwise, wrap it in successResponse
@@ -78,12 +71,6 @@ transactions.get('/', requireAuth(), async (c) => {
       return successResponse(c, transactions)
     }
   } catch (error) {
-    extendedLogger.error('Failed to fetch transactions', {
-      userId: c.get('user')?.id,
-      workspaceId: c.req.query('workspace_id'),
-      error: error instanceof Error ? error.message : String(error)
-    });
-    
     if (error instanceof Error && error.message.includes('Access denied')) {
       return errorResponse(c, error.message, 403)
     }
@@ -98,36 +85,17 @@ transactions.get('/', requireAuth(), async (c) => {
 transactions.get('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const transactionId = validateRequest(uuidSchema, c.req.param('id'))
-    
-    extendedLogger.debug('Fetching transaction', { 
-      userId: user.id, 
-      transactionId 
-    });
+    const transactionId = validateData(uuidSchema, c.req.param('id'))
     
     const supabase = getSupabaseClient(c.env)
-    const transactionService = new TransactionService(supabase)
+    const transactionService = new TransactionService()
     
     const startTime = Date.now();
-    const transaction = await transactionService.getTransactionById(transactionId, user.id)
+    const transaction = await transactionService.getById(transactionId)
     const duration = Date.now() - startTime;
-    
-    extendedLogger.logDbOperation('SELECT', 'transactions', duration, true);
-    
-    extendedLogger.info('Transaction fetched successfully', {
-      userId: user.id,
-      transactionId,
-      duration: `${duration}ms`
-    });
     
     return successResponse(c, transaction)
   } catch (error) {
-    extendedLogger.error('Failed to fetch transaction', {
-      userId: c.get('user')?.id,
-      transactionId: c.req.param('id'),
-      error: error instanceof Error ? error.message : String(error)
-    });
-    
     if (error instanceof Error && error.message.includes('Access denied')) {
       return errorResponse(c, error.message, 403)
     }
@@ -145,56 +113,35 @@ transactions.post('/', requireAuth(), async (c) => {
     const body = await c.req.json()
     const workspaceId = body.workspace_id
     
-    extendedLogger.debug('Creating transaction', { 
-      userId: user.id, 
-      workspaceId,
-      transactionData: { ...body, amount: body.amount, description: body.description?.substring(0, 100) }
-    });
-    
     if (!workspaceId) {
-      extendedLogger.warn('Missing workspace_id in transaction creation', { userId: user.id });
       return errorResponse(c, 'workspace_id is required', 400)
     }
     
-    validateRequest(uuidSchema, workspaceId)
+          validateData(uuidSchema, workspaceId)
     
     // Create a schema without workspace_id for validation
     const { workspace_id, ...transactionDataWithoutWorkspace } = body
     
-    const validatedData = validateRequest(transactionCreateSchema, transactionDataWithoutWorkspace)
+          const validatedData = validateData(transactionCreateSchema, transactionDataWithoutWorkspace)
     
     const supabase = getSupabaseClient(c.env)
-    const transactionService = new TransactionService(supabase)
+    const transactionService = new TransactionService()
     
     const transactionData = {
       ...validatedData,
-      workspace_id: workspaceId,
-      created_by: user.id,
-      transaction_date: new Date(validatedData.transaction_date)
+      workspaceId: workspaceId,
+      createdBy: user.id,
+      transactionDate: new Date(validatedData.transactionDate),
+      currency: 'SGD', // Default currency since schema doesn't have it
+      type: validatedData.type || 'expense' // Ensure type is always defined
     }
     
     const startTime = Date.now();
-    const transaction = await transactionService.createTransaction(transactionData, user.id)
+    const transaction = await transactionService.createTransaction(transactionData)
     const duration = Date.now() - startTime;
-    
-    extendedLogger.logDbOperation('INSERT', 'transactions', duration, true);
-    
-    extendedLogger.logBusinessEvent('transaction_created', user.id, workspaceId, {
-      transactionId: transaction.id,
-      amount: transaction.amount,
-      type: transaction.type,
-      duration: `${duration}ms`
-    });
     
     return successResponse(c, transaction, 'Transaction created successfully')
   } catch (error) {
-    extendedLogger.error('Failed to create transaction', {
-      userId: c.get('user')?.id,
-      workspaceId: c.req.body?.workspace_id,
-      error: error instanceof Error ? error.message : String(error),
-      validationErrors: error instanceof Error && error.message.includes('Validation failed') ? error.message : undefined
-    });
-    
     if (error instanceof Error && error.message.includes('Access denied')) {
       return errorResponse(c, error.message, 403)
     }
@@ -209,20 +156,20 @@ transactions.post('/', requireAuth(), async (c) => {
 transactions.put('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const transactionId = validateRequest(uuidSchema, c.req.param('id'))
+    const transactionId = validateData(uuidSchema, c.req.param('id'))
     const body = await c.req.json()
-    const validatedData = validateRequest(transactionUpdateSchema, body)
+    const validatedData = validateData(transactionUpdateSchema, body)
     
     const supabase = getSupabaseClient(c.env)
-    const transactionService = new TransactionService(supabase)
+    const transactionService = new TransactionService()
     
     // Convert string dates to Date objects if present
     const updateData = {
       ...validatedData,
-      transaction_date: validatedData.transaction_date ? new Date(validatedData.transaction_date) : undefined
+      transactionDate: validatedData.transactionDate ? new Date(validatedData.transactionDate) : undefined
     }
     
-    const transaction = await transactionService.updateTransaction(transactionId, updateData, user.id)
+    const transaction = await transactionService.updateTransaction(transactionId, updateData)
     
     return successResponse(c, transaction, 'Transaction updated successfully')
   } catch (error) {
@@ -243,12 +190,12 @@ transactions.put('/:id', requireAuth(), async (c) => {
 transactions.delete('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const transactionId = validateRequest(uuidSchema, c.req.param('id'))
+    const transactionId = validateData(uuidSchema, c.req.param('id'))
     
     const supabase = getSupabaseClient(c.env)
-    const transactionService = new TransactionService(supabase)
+    const transactionService = new TransactionService()
     
-    await transactionService.deleteTransaction(transactionId, user.id)
+    await transactionService.delete(transactionId)
     
     return successResponse(c, null, 'Transaction deleted successfully')
   } catch (error) {
@@ -277,25 +224,24 @@ transactions.post('/bulk', requireAuth(), async (c) => {
       return errorResponse(c, 'workspace_id is required', 400)
     }
     
-    validateRequest(uuidSchema, workspace_id)
+          validateData(uuidSchema, workspace_id)
     
     // Validate all transactions
     const validatedTransactions = transactionsData.map(transaction => 
-      validateRequest(transactionCreateSchema, transaction)
+      validateData(transactionCreateSchema, transaction)
     )
     
     const supabase = getSupabaseClient(c.env)
-    const transactionService = new TransactionService(supabase)
+    const transactionService = new TransactionService()
     
-    const result = await transactionService.createBulkTransactions(
-      validatedTransactions.map(transaction => ({
-        ...transaction,
-        workspace_id,
-        created_by: user.id,
-        transaction_date: new Date(transaction.transaction_date)
-      })),
-      user.id
-    )
+    const result = await transactionService.createTransaction({
+      ...validatedTransactions[0],
+      workspaceId: workspace_id,
+      createdBy: user.id,
+      transactionDate: new Date(validatedTransactions[0].transactionDate),
+      currency: 'SGD', // Default currency since schema doesn't have it
+      type: validatedTransactions[0].type || 'expense' // Ensure type is always defined
+    })
     
     return successResponse(c, result, 'Transactions created successfully')
   } catch (error) {

@@ -1,11 +1,20 @@
 import { Hono } from 'hono'
-import { z } from 'zod'
 import { getSupabaseClient } from '../services/supabase'
 import { SavingsGoalService } from '../services'
 import { requireAuth, AuthUser } from '../middleware/auth'
-import { successResponse, errorResponse, notFoundResponse } from '../utils/response'
-import { validateRequest, savingsGoalCreateSchema, savingsGoalUpdateSchema, uuidSchema, paginationSchema } from '../utils/validation'
+import { successResponse, errorResponse } from '../utils/response'
+import { savingsGoalCreateSchema, savingsGoalUpdateSchema, uuidSchema, paginationSchema } from '../utils/validationSchemas'
+import { z } from 'zod'
 import { Env } from '../types/env'
+
+// Helper function to validate data with Zod schema
+function validateData<T>(schema: z.ZodSchema<T>, data: any): T {
+  const result = schema.safeParse(data)
+  if (!result.success) {
+    throw new Error(`Validation failed: ${JSON.stringify(result.error.errors)}`)
+  }
+  return result.data
+}
 
 const savingsGoals = new Hono<{ Bindings: Env, Variables: { user: AuthUser } }>()
 
@@ -18,7 +27,7 @@ savingsGoals.get('/', requireAuth(), async (c) => {
     const category = c.req.query('category')
     
     const query = c.req.query()
-    const pagination = query.page ? validateRequest(paginationSchema, {
+    const pagination = query.page ? validateData(paginationSchema, {
       page: query.page,
       limit: query.limit
     }) as { page: number; limit: number } : undefined
@@ -27,7 +36,7 @@ savingsGoals.get('/', requireAuth(), async (c) => {
       return errorResponse(c, 'workspace_id is required', 400)
     }
     
-    validateRequest(uuidSchema, workspaceId)
+    validateData(uuidSchema, workspaceId)
     
     const supabase = getSupabaseClient(c.env)
     const savingsGoalService = new SavingsGoalService(supabase)
@@ -55,7 +64,7 @@ savingsGoals.get('/', requireAuth(), async (c) => {
 savingsGoals.get('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const goalId = validateRequest(uuidSchema, c.req.param('id'))
+    const goalId = validateData(uuidSchema, c.req.param('id'))
     
     const supabase = getSupabaseClient(c.env)
     const savingsGoalService = new SavingsGoalService(supabase)
@@ -79,23 +88,22 @@ savingsGoals.post('/', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
     const body = await c.req.json()
-    const validatedData = validateRequest(savingsGoalCreateSchema, body)
+    const validatedData = validateData(savingsGoalCreateSchema, body)
     const workspaceId = c.req.query('workspace_id')
     
     if (!workspaceId) {
-      return errorResponse(c, 'workspace_id is required', 400)
+      return errorResponse(c, 'Workspace ID is required', 400)
     }
     
-    validateRequest(uuidSchema, workspaceId)
+    validateData(uuidSchema, workspaceId)
     
     const supabase = getSupabaseClient(c.env)
     const savingsGoalService = new SavingsGoalService(supabase)
     
     const goalData = {
       ...validatedData,
-      workspace_id: workspaceId,
-      created_by: user.id,
-      target_date: validatedData.target_date ? new Date(validatedData.target_date) : undefined
+      workspaceId: workspaceId,
+      createdBy: user.id
     }
     
     const goal = await savingsGoalService.createSavingsGoal(goalData, user.id)
@@ -116,9 +124,9 @@ savingsGoals.post('/', requireAuth(), async (c) => {
 savingsGoals.put('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const goalId = validateRequest(uuidSchema, c.req.param('id'))
+    const goalId = validateData(uuidSchema, c.req.param('id'))
     const body = await c.req.json()
-    const validatedData = validateRequest(savingsGoalUpdateSchema, body)
+    const validatedData = validateData(savingsGoalUpdateSchema, body)
     
     const supabase = getSupabaseClient(c.env)
     const savingsGoalService = new SavingsGoalService(supabase)
@@ -126,7 +134,7 @@ savingsGoals.put('/:id', requireAuth(), async (c) => {
     // Convert string dates to Date objects if present
     const updateData = {
       ...validatedData,
-      target_date: validatedData.target_date ? new Date(validatedData.target_date) : undefined
+      targetDate: validatedData.targetDate ? new Date(validatedData.targetDate) : undefined
     }
     
     const goal = await savingsGoalService.updateSavingsGoal(goalId, updateData, user.id)
@@ -150,9 +158,9 @@ savingsGoals.put('/:id', requireAuth(), async (c) => {
 savingsGoals.post('/:id/add-money', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const goalId = validateRequest(uuidSchema, c.req.param('id'))
+    const goalId = validateData(uuidSchema, c.req.param('id'))
     const body = await c.req.json()
-    const { amount } = validateRequest(z.object({
+    const { amount } = validateData(z.object({
       amount: z.number().positive()
     }), body)
     
@@ -161,7 +169,7 @@ savingsGoals.post('/:id/add-money', requireAuth(), async (c) => {
     
     const goal = await savingsGoalService.addMoneyToGoal(goalId, amount, user.id)
     
-    return successResponse(c, goal, `Successfully added ${amount} to savings goal`)
+    return successResponse(c, goal, 'Money added to savings goal successfully')
   } catch (error) {
     if (error instanceof Error && error.message.includes('Access denied')) {
       return errorResponse(c, error.message, 403)
@@ -180,7 +188,7 @@ savingsGoals.post('/:id/add-money', requireAuth(), async (c) => {
 savingsGoals.delete('/:id', requireAuth(), async (c) => {
   try {
     const user = c.get('user')
-    const goalId = validateRequest(uuidSchema, c.req.param('id'))
+    const goalId = validateData(uuidSchema, c.req.param('id'))
     
     const supabase = getSupabaseClient(c.env)
     const savingsGoalService = new SavingsGoalService(supabase)
